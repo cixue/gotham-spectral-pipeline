@@ -1,0 +1,9 @@
+name: gotham-spectral-pipeline-dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - ipykernel
+  - ipympl
+  - pyink
+  - mypy
