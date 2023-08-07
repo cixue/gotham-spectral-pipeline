@@ -7,3 +7,6 @@ dependencies:
   - ipympl
   - pyink
   - mypy
+  - loguru
+  - pandas
+  - pandas-stubs
