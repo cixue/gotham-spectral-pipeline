@@ -10,3 +10,4 @@ dependencies:
   - loguru
   - pandas
   - pandas-stubs
+  - astropy

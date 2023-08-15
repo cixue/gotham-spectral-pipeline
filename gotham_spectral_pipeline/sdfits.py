@@ -1,8 +1,10 @@
+import ast
 import collections
 import io
 import pathlib
 import re
 
+import astropy.io.fits
 import loguru
 import pandas
 
@@ -75,3 +77,64 @@ class SDFits:
             len(result.group()) for result in column_header_matcher.finditer(lines[0])
         ]
         return pandas.read_fwf(io.StringIO("".join(lines)), widths=widths)
+
+    def get_hdu_from_row(self, row: pandas.Series) -> astropy.io.fits.PrimaryHDU:
+        """Get scan data represented by a record in the SDFits file.
+
+        Args:
+            row (pandas.Series): A record in the index file.
+
+        Returns:
+            astropy.io.fits.PrimaryHDU: HDU object containing the scan data.
+        """
+        path = self.path / row["FILE"]
+        extension = row["EXT"]
+        row_number = row["ROW"]
+        with astropy.io.fits.open(path, "readonly") as hdulist:
+            hdu = hdulist[extension]
+            data_column_index = hdu.columns.names.index("DATA") + 1
+            ignored_column = [
+                "DATA",
+                f"TDIM{data_column_index}",
+                f"TUNIT{data_column_index}",
+            ]
+
+            scan = hdu.data[row_number]
+            data_dimension = ast.literal_eval(scan[f"TDIM{data_column_index}"])
+            data = scan["DATA"].reshape(data_dimension[::-1])
+
+            header = astropy.io.fits.Header()
+            for column in hdu.columns:
+                if column.name in ignored_column:
+                    continue
+                try:
+                    if len(column.name) > 8:
+                        header[f"HIERARCH {column.name}"] = scan[column.name]
+                    else:
+                        header[column.name] = scan[column.name]
+                except Exception as error:
+                    loguru.logger.warning(
+                        f"An {error = } is raised while processing {column = }. Ignoring..."
+                    )
+            return astropy.io.fits.PrimaryHDU(data=data, header=header)
+
+    def get_hdulist_from_rows(
+        self, rows: pandas.DataFrame
+    ) -> list[astropy.io.fits.PrimaryHDU]:
+        """Get a list of scan data represented by records in the SDFits file.
+
+        Args:
+            row (pandas.DataFrame): Multiple records in the index file.
+
+        Returns:
+            list[astropy.io.fits.PrimaryHDU]: A list of HDU objects containing the scan data.
+        """
+        return [self.get_hdu_from_row(row) for _, row in rows.iterrows()]
+
+    def get_hdulist(self) -> list[astropy.io.fits.PrimaryHDU]:
+        """Get all scan data in the SDFits file.
+
+        Returns:
+            list[astropy.io.fits.PrimaryHDU]: A list of HDU objects containing all scan data.
+        """
+        return self.get_hdulist_from_rows(self.rows)
