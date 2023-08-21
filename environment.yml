@@ -6,3 +6,4 @@ dependencies:
   - loguru
   - pandas
   - astropy
+  - numpy
