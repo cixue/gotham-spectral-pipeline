@@ -158,6 +158,7 @@ class ZenithOpacity:
         datetime_range: tuple[str, str],
         incremental_hour: int = 1,
         frequency_lists: list[numpy.typing.NDArray[numpy.floating]] | None = None,
+        frequency_range: tuple[float, float] | None = None,
         no_caching: bool = True,
     ) -> str:
         """Generate one-liner command for generating opacity using CLEO on GBT machines
@@ -231,6 +232,15 @@ class ZenithOpacity:
                 generate_frequency_list(121.0, 171.0),
                 generate_frequency_list(197.0, 235.0, no_epsilons_at_tail=True),
             ]
+
+        if frequency_range is not None:
+            start, stop = frequency_range
+            filtered_frequency_lists: list[numpy.typing.NDArray[numpy.floating]] = []
+            for frequency_list in frequency_lists:
+                in_range = (start <= frequency_list) & (frequency_list <= stop)
+                if any(in_range):
+                    filtered_frequency_lists.append(frequency_list[in_range])
+            frequency_lists = filtered_frequency_lists
 
         file_suffix = "_".join(
             map(
