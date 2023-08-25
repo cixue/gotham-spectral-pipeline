@@ -1,6 +1,7 @@
 import typing
 
 import astropy.io.fits
+import astropy.wcs
 import loguru
 import numpy
 import numpy.typing
@@ -38,6 +39,32 @@ class Calibration:
             return False
 
         return True
+
+    @staticmethod
+    def get_frequency(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        edges: bool = False,
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        if not Calibration._verify_paired_hdu(paired_hdu):
+            return None
+
+        wcses = {key: astropy.wcs.WCS(hdu).spectral for key, hdu in paired_hdu.items()}
+        if len(set(map(str, wcses.values()))) > 1:
+            loguru.logger.warning(
+                "WCS's for each HDU are not identical. Using the one for sig_caloff."
+            )
+
+        wcs = wcses["sig_caloff"]
+        if wcs.naxis != 1:
+            loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
+            return None
+
+        if edges:
+            return wcs.pixel_to_world(
+                numpy.arange(wcs.pixel_shape[0] + 1) - 0.5
+            ).to_value("Hz")
+        else:
+            return wcs.pixel_to_world(numpy.arange(wcs.pixel_shape[0])).to_value("Hz")
 
     @staticmethod
     def get_system_temperature(
