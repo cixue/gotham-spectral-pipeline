@@ -1,14 +1,50 @@
 import typing
 
+import astropy.io.fits
 import loguru
 import numpy
+import numpy.typing
 import pandas
 
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
 
 class Calibration:
-    pass
+
+    @staticmethod
+    def get_system_temperature(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
+    ) -> float | None:
+        Tcals: set[float] = set()
+        for _, hdu in paired_hdu.items():
+            Tcals.add(hdu.header["TCAL"])
+
+        Tcal = Tcals.pop()
+        if len(Tcals) != 0:
+            loguru.logger.warning(
+                f"Tcal's are not identical in the paired up HDU. Using {Tcal = }. The rest are {Tcals}."
+            )
+
+        ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "ref_caloff"
+        ].data.squeeze()
+        ref_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "ref_calon"
+        ].data.squeeze()
+        if ref_caloff.shape != ref_calon.shape:
+            loguru.logger.error("Length of ref_caloff and ref_calon are not identical.")
+            return None
+
+        if ref_caloff.ndim != 1:
+            loguru.logger.error("Expecting ref_caloff and ref_calon to be 1D.")
+            return None
+
+        trim_length = ref_caloff.size // 10
+        ref80_caloff = ref_caloff[trim_length:-trim_length]
+        ref80_calon = ref_calon[trim_length:-trim_length]
+
+        Tsys = Tcal * (0.5 + ref80_caloff.mean() / (ref80_calon - ref80_caloff).mean())
+        return Tsys
 
 
 class PositionSwitchedCalibration(Calibration):
