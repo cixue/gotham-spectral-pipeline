@@ -12,9 +12,40 @@ PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_ca
 class Calibration:
 
     @staticmethod
+    def _verify_paired_hdu(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
+    ) -> bool:
+        ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "ref_caloff"
+        ].data.squeeze()
+        ref_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "ref_calon"
+        ].data.squeeze()
+        sig_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "sig_caloff"
+        ].data.squeeze()
+        sig_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            "sig_calon"
+        ].data.squeeze()
+        if not (
+            ref_caloff.shape == ref_calon.shape == sig_caloff.shape == sig_calon.shape
+        ):
+            loguru.logger.error("Length of paired HDUs are not identical.")
+            return False
+
+        if ref_caloff.ndim != 1:
+            loguru.logger.error("Expecting paired HDUs to be 1D.")
+            return False
+
+        return True
+
+    @staticmethod
     def get_system_temperature(
         paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
     ) -> float | None:
+        if not Calibration._verify_paired_hdu(paired_hdu):
+            return None
+
         Tcals: set[float] = set()
         for _, hdu in paired_hdu.items():
             Tcals.add(hdu.header["TCAL"])
@@ -31,13 +62,6 @@ class Calibration:
         ref_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
             "ref_calon"
         ].data.squeeze()
-        if ref_caloff.shape != ref_calon.shape:
-            loguru.logger.error("Length of ref_caloff and ref_calon are not identical.")
-            return None
-
-        if ref_caloff.ndim != 1:
-            loguru.logger.error("Expecting ref_caloff and ref_calon to be 1D.")
-            return None
 
         trim_length = ref_caloff.size // 10
         ref80_caloff = ref_caloff[trim_length:-trim_length]
@@ -45,6 +69,29 @@ class Calibration:
 
         Tsys = Tcal * (0.5 + ref80_caloff.mean() / (ref80_calon - ref80_caloff).mean())
         return Tsys
+
+    @staticmethod
+    def get_antenna_temperature(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        if not Calibration._verify_paired_hdu(paired_hdu):
+            return None
+
+        Tsys = Calibration.get_system_temperature(paired_hdu)
+        if Tsys is None:
+            return None
+
+        ref = 0.5 * (
+            paired_hdu["ref_caloff"].data.squeeze()
+            + paired_hdu["ref_calon"].data.squeeze()
+        )
+        sig = 0.5 * (
+            paired_hdu["sig_caloff"].data.squeeze()
+            + paired_hdu["sig_calon"].data.squeeze()
+        )
+
+        Ta = Tsys * (sig - ref) / ref
+        return Ta
 
 
 class PositionSwitchedCalibration(Calibration):
