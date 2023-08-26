@@ -3,6 +3,7 @@ from .zenith_opacity import ZenithOpacity
 import datetime
 import typing
 
+import astropy.constants
 import astropy.io.fits
 import astropy.wcs
 import loguru
@@ -71,6 +72,28 @@ class Calibration:
             ).to_value(unit)
         loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
         return None
+
+    @staticmethod
+    def get_corrected_frequency(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        loc: typing.Literal["center", "edge"] = "center",
+        unit: str = "Hz",
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        frequency = Calibration.get_frequency(paired_hdu, loc=loc, unit=unit)
+        if frequency is None:
+            return None
+
+        vframes = {key: hdu.header["VFRAME"] for key, hdu in paired_hdu.items()}
+        if len(set(vframes.values())) > 1:
+            loguru.logger.warning(
+                "Frame velocity in each HDU are not identical. Using the one for sig_caloff."
+            )
+
+        vframe = vframes["sig_caloff"]
+        beta = vframe / astropy.constants.c.to_value("m/s")
+        doppler = numpy.sqrt((1 + beta) / (1 - beta))
+        corrected_frequency = frequency * doppler
+        return corrected_frequency
 
     @staticmethod
     def get_system_temperature(
