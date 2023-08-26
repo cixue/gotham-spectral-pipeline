@@ -46,7 +46,8 @@ class Calibration:
     @staticmethod
     def get_frequency(
         paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
-        edges: bool = False,
+        loc: typing.Literal["center", "edge"] = "center",
+        unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
@@ -62,12 +63,14 @@ class Calibration:
             loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
             return None
 
-        if edges:
+        if loc == "center":
+            return wcs.pixel_to_world(numpy.arange(wcs.pixel_shape[0])).to_value(unit)
+        if loc == "edge":
             return wcs.pixel_to_world(
                 numpy.arange(wcs.pixel_shape[0] + 1) - 0.5
-            ).to_value("Hz")
-        else:
-            return wcs.pixel_to_world(numpy.arange(wcs.pixel_shape[0])).to_value("Hz")
+            ).to_value(unit)
+        loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
+        return None
 
     @staticmethod
     def get_system_temperature(
@@ -129,7 +132,7 @@ class Calibration:
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_frequency(paired_hdu)
+        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
         if frequency is None:
             return None
 
