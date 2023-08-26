@@ -1,3 +1,6 @@
+from .zenith_opacity import ZenithOpacity
+
+import datetime
 import typing
 
 import astropy.io.fits
@@ -119,6 +122,29 @@ class Calibration:
 
         Ta = Tsys * (sig - ref) / ref
         return Ta
+
+    @staticmethod
+    def get_corrected_antenna_temperature(
+        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        zenith_opacity: ZenithOpacity,
+        eta_l: float = 0.99,
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        frequency = Calibration.get_frequency(paired_hdu)
+        if frequency is None:
+            return None
+
+        timestamp = (
+            datetime.datetime.strptime(
+                paired_hdu["sig_caloff"].header["DATE-OBS"], "%Y-%m-%dT%H:%M:%S.%f"
+            )
+            .replace(tzinfo=datetime.timezone.utc)
+            .timestamp()
+        )
+        tau = zenith_opacity.get_opacity(timestamp, frequency)
+        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
+        Ta = Calibration.get_antenna_temperature(paired_hdu)
+        Ta_corrected = Ta * numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
+        return Ta_corrected
 
 
 class PositionSwitchedCalibration(Calibration):
