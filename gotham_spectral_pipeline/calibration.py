@@ -178,6 +178,51 @@ class Calibration:
         Ta_corrected = Ta * numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
         return Ta_corrected
 
+    @functools.lru_cache(maxsize=4)
+    @staticmethod
+    def get_estimated_noise(paired_hdu: PairedHDU) -> float:
+        Tsys = Calibration.get_system_temperature(paired_hdu)
+        frequency_resolution = paired_hdu.get_property(
+            lambda hdu: hdu.header["FREQRES"]
+        )
+        exposure = paired_hdu.get_property(lambda hdu: hdu.header["EXPOSURE"])
+        estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
+        return estimated_noise
+
+    @functools.lru_cache(maxsize=4)
+    @staticmethod
+    def get_corrected_estimated_noise(
+        paired_hdu: PairedHDU,
+        zenith_opacity: ZenithOpacity,
+        eta_l: float = 0.99,
+    ) -> float | None:
+        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
+        if frequency is None:
+            return None
+
+        Tsys = Calibration.get_system_temperature(paired_hdu)
+        frequency_resolution = paired_hdu.get_property(
+            lambda hdu: hdu.header["FREQRES"]
+        )
+        exposure = paired_hdu.get_property(lambda hdu: hdu.header["EXPOSURE"])
+        estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
+
+        timestamp = (
+            datetime.datetime.strptime(
+                paired_hdu["sig_caloff"].header["DATE-OBS"], "%Y-%m-%dT%H:%M:%S.%f"
+            )
+            .replace(tzinfo=datetime.timezone.utc)
+            .timestamp()
+        )
+        tau = zenith_opacity.get_opacity(timestamp, frequency)
+        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
+        estimated_noise_corrected = (
+            estimated_noise
+            * numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation)))
+            / eta_l
+        )
+        return estimated_noise_corrected
+
 
 class PositionSwitchedCalibration(Calibration):
 
