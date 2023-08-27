@@ -1,6 +1,7 @@
 from .zenith_opacity import ZenithOpacity
 
 import datetime
+import functools
 import typing
 
 import astropy.constants
@@ -14,12 +15,17 @@ import pandas
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
 
+class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.items())))
+
+
 class Calibration:
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
-    def _verify_paired_hdu(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
-    ) -> bool:
+    def _verify_paired_hdu(paired_hdu: PairedHDU) -> bool:
         ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
             "ref_caloff"
         ].data.squeeze()
@@ -44,9 +50,10 @@ class Calibration:
 
         return True
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_frequency(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        paired_hdu: PairedHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -73,9 +80,10 @@ class Calibration:
         loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
         return None
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_corrected_frequency(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        paired_hdu: PairedHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -95,10 +103,9 @@ class Calibration:
         corrected_frequency = frequency * doppler
         return corrected_frequency
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
-    def get_system_temperature(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
-    ) -> float | None:
+    def get_system_temperature(paired_hdu: PairedHDU) -> float | None:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
 
@@ -126,9 +133,10 @@ class Calibration:
         Tsys = Tcal * (0.5 + ref80_caloff.mean() / (ref80_calon - ref80_caloff).mean())
         return Tsys
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_antenna_temperature(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU]
+        paired_hdu: PairedHDU,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
@@ -149,9 +157,10 @@ class Calibration:
         Ta = Tsys * (sig - ref) / ref
         return Ta
 
+    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_corrected_antenna_temperature(
-        paired_hdu: dict[PairedScanName, astropy.io.fits.PrimaryHDU],
+        paired_hdu: PairedHDU,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
