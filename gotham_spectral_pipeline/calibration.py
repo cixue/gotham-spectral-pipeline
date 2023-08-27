@@ -12,6 +12,8 @@ import numpy
 import numpy.typing
 import pandas
 
+T1 = typing.TypeVar("T1")
+T2 = typing.TypeVar("T2")
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
 
@@ -20,10 +22,26 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
 
+    def get_property(
+        self,
+        getter: typing.Callable[[astropy.io.fits.PrimaryHDU], T1],
+        transformer: (
+            typing.Callable[[T1], T1] | typing.Callable[[T1], T2]
+        ) = lambda x: x,
+        default_scan: PairedScanName = "sig_caloff",
+        property_name: str = "Property",
+    ) -> T1:
+        properties = {key: getter(hdu) for key, hdu in self.items()}
+        transformed = set(map(transformer, properties.values()))
+        if len(transformed) > 1:
+            loguru.logger.warning(
+                f"{property_name} of each HDU are not identical. Using the one of {default_scan}."
+            )
+        return properties[default_scan]
+
 
 class Calibration:
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def _verify_paired_hdu(paired_hdu: PairedHDU) -> bool:
         ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
@@ -60,13 +78,9 @@ class Calibration:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
 
-        wcses = {key: astropy.wcs.WCS(hdu).spectral for key, hdu in paired_hdu.items()}
-        if len(set(map(str, wcses.values()))) > 1:
-            loguru.logger.warning(
-                "WCS's for each HDU are not identical. Using the one for sig_caloff."
-            )
-
-        wcs = wcses["sig_caloff"]
+        wcs = paired_hdu.get_property(
+            getter=lambda hdu: astropy.wcs.WCS(hdu).spectral, transformer=str
+        )
         if wcs.naxis != 1:
             loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
             return None
@@ -91,13 +105,7 @@ class Calibration:
         if frequency is None:
             return None
 
-        vframes = {key: hdu.header["VFRAME"] for key, hdu in paired_hdu.items()}
-        if len(set(vframes.values())) > 1:
-            loguru.logger.warning(
-                "Frame velocity in each HDU are not identical. Using the one for sig_caloff."
-            )
-
-        vframe = vframes["sig_caloff"]
+        vframe = paired_hdu.get_property(getter=lambda hdu: hdu.header["VFRAME"])
         beta = vframe / astropy.constants.c.to_value("m/s")
         doppler = numpy.sqrt((1 + beta) / (1 - beta))
         corrected_frequency = frequency * doppler
@@ -109,15 +117,7 @@ class Calibration:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
 
-        Tcals: set[float] = set()
-        for _, hdu in paired_hdu.items():
-            Tcals.add(hdu.header["TCAL"])
-
-        Tcal = Tcals.pop()
-        if len(Tcals) != 0:
-            loguru.logger.warning(
-                f"Tcal's are not identical in the paired up HDU. Using {Tcal = }. The rest are {Tcals}."
-            )
+        Tcal = paired_hdu.get_property(getter=lambda hdu: hdu.header["TCAL"])
 
         ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
             "ref_caloff"
