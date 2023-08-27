@@ -138,9 +138,6 @@ class Calibration:
     def get_antenna_temperature(
         paired_hdu: PairedHDU,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        if not Calibration._verify_paired_hdu(paired_hdu):
-            return None
-
         Tsys = Calibration.get_system_temperature(paired_hdu)
         if Tsys is None:
             return None
