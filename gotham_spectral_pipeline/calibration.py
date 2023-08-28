@@ -1,3 +1,4 @@
+from .spectrum import Spectrum
 from .utils import datetime_parser
 from .zenith_opacity import ZenithOpacity
 
@@ -219,6 +220,27 @@ class Calibration:
             / eta_l
         )
         return estimated_noise_corrected
+
+    @functools.lru_cache(maxsize=4)
+    @staticmethod
+    def get_calibrated_spectrum(
+        self, paired_hdu: PairedHDU, zenith_opacity: ZenithOpacity
+    ) -> Spectrum | None:
+        frequency = Calibration.get_corrected_frequency(
+            paired_hdu, loc="center", unit="Hz"
+        )
+        if frequency is None:
+            return None
+
+        Ta = Calibration.get_corrected_antenna_temperature(paired_hdu, zenith_opacity)
+        if Ta is None:
+            return None
+
+        noise = Calibration.get_corrected_estimated_noise(paired_hdu, zenith_opacity)
+        if noise is None:
+            return None
+
+        return Spectrum(frequency=frequency, intensity=Ta, noise=noise)
 
 
 class PositionSwitchedCalibration(Calibration):
