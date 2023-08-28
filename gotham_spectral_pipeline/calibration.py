@@ -1,3 +1,4 @@
+from .utils import datetime_parser
 from .zenith_opacity import ZenithOpacity
 
 import datetime
@@ -165,13 +166,9 @@ class Calibration:
         if frequency is None:
             return None
 
-        timestamp = (
-            datetime.datetime.strptime(
-                paired_hdu["sig_caloff"].header["DATE-OBS"], "%Y-%m-%dT%H:%M:%S.%f"
-            )
-            .replace(tzinfo=datetime.timezone.utc)
-            .timestamp()
-        )
+        timestamp = datetime_parser(
+            paired_hdu["sig_caloff"].header["DATE-OBS"]
+        ).timestamp()
         tau = zenith_opacity.get_opacity(timestamp, frequency)
         elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
         Ta = Calibration.get_antenna_temperature(paired_hdu)

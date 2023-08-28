@@ -1,3 +1,5 @@
+from .utils import datetime_parser
+
 import datetime
 import pathlib
 import re
@@ -179,12 +181,7 @@ class ZenithOpacity:
             )
             return dt - delta_t
 
-        start_datetime, stop_datetime = (
-            datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S.%f").replace(
-                tzinfo=datetime.timezone.utc
-            )
-            for dt in datetime_range
-        )
+        start_datetime, stop_datetime = map(datetime_parser, datetime_range)
         start_datetime = snap_to_hour(start_datetime)
         delta_t = datetime.timedelta(hours=incremental_hour)
         stop_datetime = (
