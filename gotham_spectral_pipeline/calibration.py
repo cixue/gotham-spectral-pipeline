@@ -224,7 +224,7 @@ class Calibration:
     @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_calibrated_spectrum(
-        self, paired_hdu: PairedHDU, zenith_opacity: ZenithOpacity
+        paired_hdu: PairedHDU, zenith_opacity: ZenithOpacity
     ) -> Spectrum | None:
         frequency = Calibration.get_corrected_frequency(
             paired_hdu, loc="center", unit="Hz"
