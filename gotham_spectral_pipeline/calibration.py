@@ -14,12 +14,12 @@ import numpy
 import numpy.typing
 import pandas
 
-T1 = typing.TypeVar("T1")
-T2 = typing.TypeVar("T2")
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
 
 class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
+    T1 = typing.TypeVar("T1")
+    T2 = typing.TypeVar("T2")
 
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
