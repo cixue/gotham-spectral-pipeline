@@ -193,7 +193,7 @@ class Calibration:
         paired_hdu: PairedHDU,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
-    ) -> float | None:
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
         frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
         if frequency is None:
             return None
