@@ -156,6 +156,23 @@ class Calibration:
         return Tsys
 
     @staticmethod
+    def get_temperature_correction_factor(
+        paired_hdu: PairedHDU,
+        zenith_opacity: ZenithOpacity,
+        eta_l: float = 0.99,
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
+        if frequency is None:
+            return None
+
+        timestamp = datetime_parser(
+            paired_hdu["sig_caloff"].header["DATE-OBS"]
+        ).timestamp()
+        tau = zenith_opacity.get_opacity(timestamp, frequency)
+        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
+        return numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
+
+    @staticmethod
     def get_antenna_temperature(
         paired_hdu: PairedHDU,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -181,18 +198,17 @@ class Calibration:
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
-        if frequency is None:
+        Ta = Calibration.get_antenna_temperature(paired_hdu)
+        if Ta is None:
             return None
 
-        timestamp = datetime_parser(
-            paired_hdu["sig_caloff"].header["DATE-OBS"]
-        ).timestamp()
-        tau = zenith_opacity.get_opacity(timestamp, frequency)
-        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
-        Ta = Calibration.get_antenna_temperature(paired_hdu)
-        Ta_corrected = Ta * numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
-        return Ta_corrected
+        correction_factor = Calibration.get_temperature_correction_factor(
+            paired_hdu, zenith_opacity, eta_l
+        )
+        if correction_factor is None:
+            return None
+
+        return Ta * correction_factor
 
     @functools.lru_cache(maxsize=4)
     @staticmethod
@@ -211,32 +227,11 @@ class Calibration:
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
-        if frequency is None:
+        estimated_noise = Calibration.get_estimated_noise(paired_hdu)
+        correction_factor = Calibration.get_temperature_correction_factor(paired_hdu, zenith_opacity, eta_l)
+        if correction_factor is None:
             return None
-
-        Tsys = Calibration.get_system_temperature(paired_hdu)
-        frequency_resolution = paired_hdu.get_property(
-            lambda hdu: hdu.header["FREQRES"]
-        )
-        exposure = paired_hdu.get_property(lambda hdu: hdu.header["EXPOSURE"])
-        estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
-
-        timestamp = (
-            datetime.datetime.strptime(
-                paired_hdu["sig_caloff"].header["DATE-OBS"], "%Y-%m-%dT%H:%M:%S.%f"
-            )
-            .replace(tzinfo=datetime.timezone.utc)
-            .timestamp()
-        )
-        tau = zenith_opacity.get_opacity(timestamp, frequency)
-        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
-        estimated_noise_corrected = (
-            estimated_noise
-            * numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation)))
-            / eta_l
-        )
-        return estimated_noise_corrected
+        return estimated_noise * correction_factor
 
     @staticmethod
     def get_calibrated_spectrum(
