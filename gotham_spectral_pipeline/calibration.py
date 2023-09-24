@@ -212,8 +212,11 @@ class Calibration:
 
     @functools.lru_cache(maxsize=4)
     @staticmethod
-    def get_estimated_noise(paired_hdu: PairedHDU) -> float:
+    def get_estimated_noise(paired_hdu: PairedHDU) -> float | None:
         Tsys = Calibration.get_system_temperature(paired_hdu)
+        if Tsys is None:
+            return None
+
         frequency_resolution = paired_hdu.get_property(
             lambda hdu: hdu.header["FREQRES"]
         )
@@ -228,7 +231,12 @@ class Calibration:
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
         estimated_noise = Calibration.get_estimated_noise(paired_hdu)
-        correction_factor = Calibration.get_temperature_correction_factor(paired_hdu, zenith_opacity, eta_l)
+        if estimated_noise is None:
+            return None
+
+        correction_factor = Calibration.get_temperature_correction_factor(
+            paired_hdu, zenith_opacity, eta_l
+        )
         if correction_factor is None:
             return None
         return estimated_noise * correction_factor
