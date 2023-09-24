@@ -41,6 +41,28 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
             )
         return properties[default_scan]
 
+    def should_be_discarded(self, threshold=0.10):
+        if any(hdu.header["EXPOSURE"] == 0.0 for hdu in self.values()):
+            return True
+
+        averages = {key: numpy.nanmean(hdu.data) for key, hdu in self.items()}
+        if any(numpy.isnan(avg) for avg in averages.values()):
+            return True
+
+        percentage_difference = [
+            abs(a - b) / (0.5 * (a + b))
+            for a, b in [
+                (averages["ref_caloff"], averages["sig_caloff"]),
+                (averages["ref_calon"], averages["sig_calon"]),
+            ]
+        ]
+        if any(
+            not numpy.isfinite(pd) or pd > threshold for pd in percentage_difference
+        ):
+            return True
+
+        return False
+
 
 class Calibration:
 
