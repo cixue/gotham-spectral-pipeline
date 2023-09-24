@@ -244,6 +244,28 @@ class Calibration:
     @staticmethod
     def get_calibrated_spectrum(
         paired_hdu: PairedHDU,
+        freq_kwargs=dict(),
+    ) -> Spectrum | None:
+        freq_kwargs = dict(loc="center", unit="Hz") | freq_kwargs
+        frequency = Calibration.get_corrected_frequency(paired_hdu, **freq_kwargs)
+        if frequency is None:
+            return None
+
+        Ta = Calibration.get_antenna_temperature(paired_hdu)
+        if Ta is None:
+            return None
+
+        noise = Calibration.get_estimated_noise(paired_hdu)
+        if noise is None:
+            return None
+
+        return Spectrum(
+            frequency=frequency, intensity=Ta, noise=numpy.full_like(Ta, noise)
+        )
+
+    @staticmethod
+    def get_corrected_calibrated_spectrum(
+        paired_hdu: PairedHDU,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
         freq_kwargs=dict(),
