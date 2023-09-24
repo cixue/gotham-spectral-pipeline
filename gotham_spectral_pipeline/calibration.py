@@ -92,7 +92,6 @@ class Calibration:
 
         return True
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_frequency(
         paired_hdu: PairedHDU,
@@ -118,7 +117,6 @@ class Calibration:
         loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
         return None
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_corrected_frequency(
         paired_hdu: PairedHDU,
@@ -157,7 +155,6 @@ class Calibration:
         Tsys = Tcal * (0.5 + ref80_caloff.mean() / (ref80_calon - ref80_caloff).mean())
         return Tsys
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_antenna_temperature(
         paired_hdu: PairedHDU,
@@ -178,7 +175,6 @@ class Calibration:
         Ta = Tsys * (sig - ref) / ref
         return Ta
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_corrected_antenna_temperature(
         paired_hdu: PairedHDU,
@@ -209,7 +205,6 @@ class Calibration:
         estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
         return estimated_noise
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_corrected_estimated_noise(
         paired_hdu: PairedHDU,
@@ -243,7 +238,6 @@ class Calibration:
         )
         return estimated_noise_corrected
 
-    @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_calibrated_spectrum(
         paired_hdu: PairedHDU, zenith_opacity: ZenithOpacity
