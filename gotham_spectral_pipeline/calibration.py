@@ -45,6 +45,11 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
         if any(hdu.header["EXPOSURE"] == 0.0 for hdu in self.values()):
             return True
 
+        if numpy.all(self["ref_caloff"].data == self["sig_caloff"].data) and numpy.all(
+            self["ref_calon"].data == self["sig_calon"].data
+        ):
+            return True
+
         averages = {key: numpy.nanmean(hdu.data) for key, hdu in self.items()}
         if any(numpy.isnan(avg) for avg in averages.values()):
             return True
