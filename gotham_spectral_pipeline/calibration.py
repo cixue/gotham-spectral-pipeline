@@ -127,6 +127,7 @@ class Calibration:
         paired_hdu: PairedHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
+        method: typing.Literal["default", "four_chunks"] = "default",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
         frequency = Calibration.get_frequency(paired_hdu, loc=loc, unit=unit)
         if frequency is None:
@@ -134,9 +135,17 @@ class Calibration:
 
         vframe = paired_hdu.get_property(getter=lambda hdu: hdu.header["VFRAME"])
         beta = vframe / astropy.constants.c.to_value("m/s")
-        doppler = numpy.sqrt((1 + beta) / (1 - beta))
-        corrected_frequency = frequency * doppler
-        return corrected_frequency
+        if method == "default":
+            doppler = numpy.sqrt((1 + beta) / (1 - beta))
+            corrected_frequency = frequency * doppler
+            return corrected_frequency
+        elif method == "four_chunks":
+            corrected_frequency = frequency.copy()
+            for chunk in numpy.array_split(corrected_frequency, 4):
+                central_frequency = 0.5 * (chunk[0] + chunk[-1])
+                chunk += central_frequency * beta
+            return corrected_frequency
+        return None
 
     @functools.lru_cache(maxsize=4)
     @staticmethod
