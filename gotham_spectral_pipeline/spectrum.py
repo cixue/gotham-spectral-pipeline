@@ -41,7 +41,9 @@ class Spectrum:
     def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
         return self.flag != Spectrum.FlagReason.NOT_FLAGGED
 
-    def flag_rfi(self, nadjacent: int = 3, confidence: float = 0.999999):
+    def detect_signal(
+        self, nadjacent, confidence
+    ) -> numpy.typing.NDArray[numpy.bool_] | None:
         # TODO: This implementation can be optimized using bottleneck. It
         # requires a expanding the parenthesis manually and rewrite p, q, r, u,
         # v and w. It may hurt readability so performance should be measured
@@ -77,9 +79,16 @@ class Spectrum:
         c = (p * w - u * r) / delta
         # We can get chi-squared by definition
         chi_squared = (((m[:, None] * x + c[:, None] - y) / s) ** 2).sum(axis=-1)
-        is_rfi = numpy.where(scipy.special.chdtr(width, chi_squared) > confidence)[0]
+        is_signal = numpy.where(scipy.special.chdtr(width, chi_squared) > confidence)[0]
+
+        res = numpy.zeros_like(self.frequency, dtype=bool)
         for i in range(width):
-            self.flag[i : delta.size + i][is_rfi] = Spectrum.FlagReason.RFI
+            res[i : delta.size + i][is_signal] = True
+        return res
+
+    def flag_rfi(self, nadjacent: int = 3, confidence: float = 0.999999):
+        is_rfi = self.detect_signal(nadjacent, confidence)
+        self.flag[is_rfi] = Spectrum.FlagReason.RFI
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
