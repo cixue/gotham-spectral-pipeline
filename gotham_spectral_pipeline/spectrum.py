@@ -1,6 +1,8 @@
 import enum
+import functools
 import typing
 
+import astropy.timeseries
 import loguru
 import numpy
 import numpy.polynomial.polynomial as poly
@@ -150,3 +152,31 @@ class Spectrum:
             noise = self.noise[~mask]
             polynomial = poly.Polynomial.fit(frequency, intensity, degree, w=1 / noise)
         return polynomial
+
+    def fit_lomb_scargle_baseline(
+        self,
+        max_cycle: float = 32.0,
+        mask: numpy.typing.NDArray[numpy.bool_] | None = None,
+    ) -> typing.Callable[
+        [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
+    ]:
+        if mask is None:
+            mask = self.flagged
+        else:
+            mask = mask | self.flagged
+
+        frequency = self.frequency[~mask]
+        intensity = self.intensity[~mask]
+        if self.noise is None:
+            lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity)
+        else:
+            noise = self.noise[~mask]
+            lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity, noise)
+
+        min_frequency = (frequency.max() - frequency.min()) / max_cycle
+        max_ls_frequency = 1 / min_frequency
+        ls_frequency, power = lomb_scargle.autopower(
+            method="fast", maximum_frequency=max_ls_frequency
+        )
+        best_ls_frequency = ls_frequency[numpy.argmax(power)]
+        return functools.partial(lomb_scargle.model, frequency=best_ls_frequency)
