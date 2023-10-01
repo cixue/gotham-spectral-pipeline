@@ -1,7 +1,9 @@
 import enum
+import typing
 
 import loguru
 import numpy
+import numpy.polynomial.polynomial as poly
 import numpy.typing
 import scipy.special
 
@@ -129,3 +131,22 @@ class Spectrum:
             nchannel = int(self.frequency.size * fraction)
 
         self.flag[:nchannel] = self.flag[-nchannel:] = Spectrum.FlagReason.CHUNK_EDGES
+
+    def fit_polynomial_baseline(
+        self, degree: int, mask: numpy.typing.NDArray[numpy.bool_] | None = None
+    ) -> typing.Callable[
+        [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
+    ]:
+        if mask is None:
+            mask = self.flagged
+        else:
+            mask = mask | self.flagged
+
+        frequency = self.frequency[~mask]
+        intensity = self.intensity[~mask]
+        if self.noise is None:
+            polynomial = poly.Polynomial.fit(frequency, intensity, degree)
+        else:
+            noise = self.noise[~mask]
+            polynomial = poly.Polynomial.fit(frequency, intensity, degree, w=1 / noise)
+        return polynomial
