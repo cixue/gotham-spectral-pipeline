@@ -9,6 +9,50 @@ import numpy.polynomial.polynomial as poly
 import numpy.typing
 import scipy.special
 
+Baseline = typing.Callable[
+    [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
+]
+BaselineSupplementaryInfo = dict[str, typing.Any]
+
+
+def _fit_polynomial_baseline(
+    frequency: numpy.typing.NDArray[numpy.floating],
+    intensity: numpy.typing.NDArray[numpy.floating],
+    noise: numpy.typing.NDArray[numpy.floating] | None,
+    degree: int,
+) -> tuple[Baseline, BaselineSupplementaryInfo]:
+    if noise is None:
+        polynomial = poly.Polynomial.fit(frequency, intensity, degree)
+    else:
+        polynomial = poly.Polynomial.fit(frequency, intensity, degree, w=1 / noise)
+    return polynomial, {"polynomial": polynomial}
+
+
+def _fit_lomb_scargle_baseline(
+    frequency: numpy.typing.NDArray[numpy.floating],
+    intensity: numpy.typing.NDArray[numpy.floating],
+    noise: numpy.typing.NDArray[numpy.floating] | None,
+    max_cycle: float | None = None,
+) -> tuple[Baseline, BaselineSupplementaryInfo]:
+    if noise is None:
+        lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity)
+    else:
+        lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity, noise)
+
+    if max_cycle is None:
+        ls_frequency, power = lomb_scargle.autopower(method="fast")
+    else:
+        min_frequency = (frequency.max() - frequency.min()) / max_cycle
+        max_ls_frequency = 1 / min_frequency
+        ls_frequency, power = lomb_scargle.autopower(
+            method="fast", maximum_frequency=max_ls_frequency
+        )
+    best_ls_frequency = ls_frequency[numpy.argmax(power)]
+    return functools.partial(lomb_scargle.model, frequency=best_ls_frequency), {
+        "lomb_scargle": lomb_scargle,
+        "best_ls_frequency": best_ls_frequency,
+    }
+
 
 class Spectrum:
     frequency: numpy.typing.NDArray[numpy.floating]
@@ -134,49 +178,24 @@ class Spectrum:
 
         self.flag[:nchannel] = self.flag[-nchannel:] = Spectrum.FlagReason.CHUNK_EDGES
 
-    def fit_polynomial_baseline(
-        self, degree: int, mask: numpy.typing.NDArray[numpy.bool_] | None = None
-    ) -> typing.Callable[
-        [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
-    ]:
-        if mask is None:
-            mask = self.flagged
-        else:
-            mask = mask | self.flagged
-
-        frequency = self.frequency[~mask]
-        intensity = self.intensity[~mask]
-        if self.noise is None:
-            polynomial = poly.Polynomial.fit(frequency, intensity, degree)
-        else:
-            noise = self.noise[~mask]
-            polynomial = poly.Polynomial.fit(frequency, intensity, degree, w=1 / noise)
-        return polynomial
-
-    def fit_lomb_scargle_baseline(
+    def fit_baseline(
         self,
-        max_cycle: float = 32.0,
+        method: typing.Literal["polynomial", "lomb-scargle"] = "polynomial",
         mask: numpy.typing.NDArray[numpy.bool_] | None = None,
-    ) -> typing.Callable[
-        [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
-    ]:
-        if mask is None:
-            mask = self.flagged
-        else:
-            mask = mask | self.flagged
+        polynomial_options: dict[str, typing.Any] = {},
+        lomb_scargle_options: dict[str, typing.Any] = {},
+    ) -> tuple[Baseline, BaselineSupplementaryInfo] | None:
+        fitted = ~self.flagged if mask is None else ~(mask | self.flagged)
+        frequency = self.frequency[fitted]
+        intensity = self.intensity[fitted]
+        noise = None if self.noise is None else self.noise[fitted]
 
-        frequency = self.frequency[~mask]
-        intensity = self.intensity[~mask]
-        if self.noise is None:
-            lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity)
-        else:
-            noise = self.noise[~mask]
-            lomb_scargle = astropy.timeseries.LombScargle(frequency, intensity, noise)
-
-        min_frequency = (frequency.max() - frequency.min()) / max_cycle
-        max_ls_frequency = 1 / min_frequency
-        ls_frequency, power = lomb_scargle.autopower(
-            method="fast", maximum_frequency=max_ls_frequency
-        )
-        best_ls_frequency = ls_frequency[numpy.argmax(power)]
-        return functools.partial(lomb_scargle.model, frequency=best_ls_frequency)
+        if method == "polynomial":
+            return _fit_polynomial_baseline(
+                frequency, intensity, noise, **polynomial_options
+            )
+        elif method == "lomb-scargle":
+            return _fit_lomb_scargle_baseline(
+                frequency, intensity, noise, **lomb_scargle_options
+            )
+        return None
