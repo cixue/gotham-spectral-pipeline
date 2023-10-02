@@ -406,7 +406,7 @@ class Spectrum:
 
     def fit_baseline(
         self,
-        method: typing.Literal["polynomial", "lomb-scargle"] = "polynomial",
+        method: typing.Literal["hybrid", "polynomial", "lomb-scargle"] = "hybrid",
         mask: numpy.typing.NDArray[numpy.bool_] | None = None,
         residual_threshold: float | None = None,
         residual_half_moving_window: int = 512,
@@ -429,7 +429,8 @@ class Spectrum:
 
         all_baseline: list[Baseline] = []
         all_baseline_info: list[BaselineSupplementaryInfo] = []
-        if method == "polynomial":
+
+        if method == "hybrid" or method == "polynomial":
             polynomial_result = _auto_fit_polynomial_baseline(
                 frequency,
                 intensity,
@@ -444,7 +445,8 @@ class Spectrum:
             baseline, baseline_info = polynomial_result
             all_baseline.append(baseline)
             all_baseline_info.append(baseline_info)
-        elif method == "lomb-scargle":
+
+        if method == "hybrid" or method == "lomb-scargle":
             lomb_scargle_result = _auto_fit_lomb_scargle_baseline(
                 frequency,
                 intensity,
