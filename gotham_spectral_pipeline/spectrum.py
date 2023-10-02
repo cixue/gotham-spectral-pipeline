@@ -462,14 +462,13 @@ class Spectrum:
             all_baseline.extend(baseline_list)
             all_baseline_info.extend(baseline_info_list)
 
-        if len(all_baseline) == 1:
-            return all_baseline[0], all_baseline_info[0]
-
         def combined_baseline(
             frequency: numpy.typing.NDArray[numpy.floating],
         ) -> numpy.typing.NDArray[numpy.floating]:
             if len(all_baseline) == 0:
                 return numpy.zeros_like(frequency)
+            if len(all_baseline) == 1:
+                return all_baseline[0](frequency)
             return numpy.sum([baseline(frequency) for baseline in all_baseline], axis=0)
 
         combined_baseline_info = collections.defaultdict(list)
