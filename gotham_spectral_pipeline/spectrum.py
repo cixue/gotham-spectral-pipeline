@@ -9,8 +9,8 @@ import scipy.special
 class Spectrum:
     frequency: numpy.typing.NDArray[numpy.floating]
     intensity: numpy.typing.NDArray[numpy.floating]
-    noise: numpy.typing.NDArray[numpy.floating]
-    flag: numpy.typing.NDArray[numpy.object_]
+    noise: numpy.typing.NDArray[numpy.floating] | None
+    flag: numpy.typing.NDArray[numpy.object_] | None
 
     class FlagReason(enum.Enum):
         NOT_FLAGGED = 0
@@ -21,29 +21,49 @@ class Spectrum:
         self,
         frequency: numpy.typing.ArrayLike,
         intensity: numpy.typing.ArrayLike,
-        noise: numpy.typing.ArrayLike,
+        noise: numpy.typing.ArrayLike | None,
+        no_flag: bool = False,
     ):
         self.frequency = numpy.array(frequency)
         self.intensity = numpy.array(intensity)
-        self.noise = numpy.array(noise)
-        if not (self.frequency.shape == self.intensity.shape == self.noise.shape):
-            loguru.logger.error(
-                "Frequency, intensity and noise do not have the same shape."
-            )
-            self.frequency = self.intensity = self.noise = numpy.empty(0)
+        if not (self.frequency.shape == self.intensity.shape):
+            loguru.logger.error("Frequency and intensity do not have the same shape.")
+            self.frequency = self.intensity = numpy.empty(0)
             return
 
-        self.flag = numpy.full_like(
-            self.frequency, Spectrum.FlagReason.NOT_FLAGGED, dtype=object
-        )
+        if noise is None:
+            self.noise = None
+        else:
+            self.noise = numpy.array(noise)
+            if not (self.frequency.shape == self.noise.shape):
+                loguru.logger.error(
+                    "Frequency, intensity and noise do not have the same shape."
+                )
+                self.frequency = self.intensity = self.noise = numpy.empty(0)
+                return
+
+        if no_flag:
+            self.flag = None
+        else:
+            self.flag = numpy.full_like(
+                self.frequency, Spectrum.FlagReason.NOT_FLAGGED, dtype=object
+            )
 
     @property
     def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
+        if self.flag is None:
+            loguru.logger.warning("This spectrum have no flags.")
+            return numpy.full_like(self.frequency, False)
+
         return self.flag != Spectrum.FlagReason.NOT_FLAGGED
 
     def detect_signal(
         self, nadjacent, confidence
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
+        if self.noise is None:
+            loguru.logger.warning("This spectrum has no noise.")
+            return None
+
         # TODO: This implementation can be optimized using bottleneck. It
         # requires a expanding the parenthesis manually and rewrite p, q, r, u,
         # v and w. It may hurt readability so performance should be measured
@@ -87,12 +107,19 @@ class Spectrum:
         return res
 
     def flag_rfi(self, nadjacent: int = 3, confidence: float = 0.999999):
+        if self.flag is None:
+            loguru.logger.warning("This spectrum have no flags.")
+            return
+
         is_rfi = self.detect_signal(nadjacent, confidence)
         self.flag[is_rfi] = Spectrum.FlagReason.RFI
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
     ):
+        if self.flag is None:
+            loguru.logger.warning("This spectrum have no flags.")
+            return
         if nchannel is None:
             if fraction is None:
                 loguru.logger.error(
