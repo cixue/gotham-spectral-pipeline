@@ -3,6 +3,7 @@ import functools
 import typing
 
 import astropy.timeseries
+import bottleneck
 import loguru
 import numpy
 import numpy.polynomial.polynomial as poly
@@ -52,6 +53,18 @@ def _fit_lomb_scargle_baseline(
         "lomb_scargle": lomb_scargle,
         "best_ls_frequency": best_ls_frequency,
     }
+
+
+def _centered_move_sum(
+    arr: numpy.typing.NDArray[typing.Any], half_moving_window: int
+) -> numpy.typing.NDArray[numpy.floating]:
+    moving_window = 2 * half_moving_window + 1
+    move_sum = bottleneck.move_sum(arr, window=moving_window, min_count=1)
+    move_sum[:-half_moving_window] = move_sum[half_moving_window:]
+    move_sum[-half_moving_window:] = bottleneck.move_sum(
+        arr[-moving_window:][::-1], window=moving_window, min_count=1
+    )[half_moving_window : 2 * half_moving_window][::-1]
+    return move_sum
 
 
 class Spectrum:
@@ -199,3 +212,29 @@ class Spectrum:
                 frequency, intensity, noise, **lomb_scargle_options
             )
         return None
+
+    def get_moving_averaged_spectrum(
+        self,
+        half_moving_window: int = 512,
+        mask: numpy.typing.NDArray[numpy.bool_] | None = None,
+    ) -> "Spectrum":
+        not_flagged = ~self.flagged if mask is None else ~(mask | self.flagged)
+        count = _centered_move_sum(not_flagged, half_moving_window)
+        intensity = (
+            _centered_move_sum(
+                numpy.where(not_flagged, self.intensity, numpy.nan), half_moving_window
+            )
+            / count
+        )
+        noise = (
+            None
+            if self.noise is None
+            else numpy.sqrt(
+                _centered_move_sum(
+                    numpy.where(not_flagged, self.noise**2, numpy.nan),
+                    half_moving_window,
+                )
+            )
+            / count
+        )
+        return Spectrum(self.frequency, intensity, noise, no_flag=True)
