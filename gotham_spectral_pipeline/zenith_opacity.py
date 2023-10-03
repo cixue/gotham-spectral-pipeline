@@ -164,6 +164,7 @@ class ZenithOpacity:
         frequency_lists: list[numpy.typing.NDArray[numpy.floating]] | None = None,
         frequency_range: tuple[float, float] | None = None,
         no_caching: bool = True,
+        force_remove: bool = False,
     ) -> str:
         """Generate one-liner command for generating opacity using CLEO on GBT machines
 
@@ -301,6 +302,9 @@ class ZenithOpacity:
             ])
             + ")"
         )
-        commands.append(f"rm {directory_name}/*_{file_suffix}.txt")
+        if force_remove:
+            commands.append(f"rm -f {directory_name}/*_{file_suffix}.txt")
+        else:
+            commands.append(f"rm {directory_name}/*_{file_suffix}.txt")
 
         return " && ".join(commands)
