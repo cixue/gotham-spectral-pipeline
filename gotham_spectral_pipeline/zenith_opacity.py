@@ -164,6 +164,7 @@ class ZenithOpacity:
         frequency_lists: list[numpy.typing.NDArray[numpy.floating]] | None = None,
         frequency_range: tuple[float, float] | None = None,
         no_caching: bool = True,
+        quiet: bool = True,
         force_remove: bool = False,
         overwrite: bool = False,
     ) -> str:
@@ -285,6 +286,8 @@ class ZenithOpacity:
         ]
         if no_caching:
             cleo_command_pieces.append("-noCaching")
+        if quiet:
+            cleo_command_pieces.append("-quiet")
         commands.append(" ".join(cleo_command_pieces))
 
         commands.append(
