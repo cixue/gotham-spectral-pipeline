@@ -11,6 +11,8 @@ import numpy.polynomial.polynomial as poly
 import numpy.typing
 import scipy.special
 
+__all__ = ["Spectrum"]
+
 Baseline = typing.Callable[
     [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
 ]
@@ -271,13 +273,15 @@ def _compute_residual(
     noise: numpy.typing.NDArray[numpy.floating],
     half_moving_window: int,
 ):
-    return numpy.sqrt(numpy.nanmean(
-        _centered_move_mean(
-            intensity / noise,
-            half_moving_window,
+    return numpy.sqrt(
+        numpy.nanmean(
+            _centered_move_mean(
+                intensity / noise,
+                half_moving_window,
+            )
+            ** 2
         )
-        ** 2
-    ))
+    )
 
 
 class Spectrum:

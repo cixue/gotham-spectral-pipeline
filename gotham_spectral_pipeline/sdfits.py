@@ -8,6 +8,8 @@ import astropy.io.fits
 import loguru
 import pandas
 
+__all__ = ["SDFits"]
+
 
 class SDFits:
     path: pathlib.Path

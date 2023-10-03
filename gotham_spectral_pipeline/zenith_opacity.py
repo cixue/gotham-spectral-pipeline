@@ -10,6 +10,8 @@ import numpy
 import numpy.typing
 import scipy.interpolate
 
+__all__ = ["ZenithOpacity"]
+
 
 class ZenithOpacity:
 
