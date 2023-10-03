@@ -165,6 +165,7 @@ class ZenithOpacity:
         frequency_range: tuple[float, float] | None = None,
         no_caching: bool = True,
         force_remove: bool = False,
+        overwrite: bool = False,
     ) -> str:
         """Generate one-liner command for generating opacity using CLEO on GBT machines
 
@@ -254,6 +255,16 @@ class ZenithOpacity:
 
         directory_name = f"Forecasts_{file_suffix}"
         commands: list[str] = []
+
+        remove_command = "rm"
+        if force_remove:
+            remove_command += " -f"
+        if overwrite:
+            commands.append(
+                f"test ! -e {directory_name} || {remove_command} {directory_name}"
+            )
+        commands.append(f"test ! -e {directory_name}")
+
         commands.append(f"mkdir {directory_name}")
         commands.extend(
             [
@@ -302,9 +313,6 @@ class ZenithOpacity:
             ])
             + ")"
         )
-        if force_remove:
-            commands.append(f"rm -f {directory_name}/*_{file_suffix}.txt")
-        else:
-            commands.append(f"rm {directory_name}/*_{file_suffix}.txt")
+        commands.append(f"{remove_command} {directory_name}/*_{file_suffix}.txt")
 
         return " && ".join(commands)
