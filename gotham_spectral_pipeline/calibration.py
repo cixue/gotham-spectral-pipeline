@@ -317,8 +317,11 @@ class PositionSwitchedCalibration(Calibration):
 
     @staticmethod
     def pair_up_rows(
-        rows: pandas.DataFrame,
+        rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
     ) -> list[PairedRow]:
+        query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
+        rows = rows.query(" and ".join(query)) if query else rows
+
         position_switched_rows = rows.query("PROCEDURE in ['OffOn', 'OnOff']")
         if len(rows) != len(position_switched_rows):
             loguru.logger.warning(
