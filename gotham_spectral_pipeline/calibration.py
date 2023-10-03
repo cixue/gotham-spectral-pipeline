@@ -1,3 +1,4 @@
+from .sdfits import SDFits
 from .spectrum import Spectrum
 from .utils import datetime_parser
 from .zenith_opacity import ZenithOpacity
@@ -17,12 +18,20 @@ import pandas
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
 
+class PairedRow(dict[PairedScanName, pandas.Series]):
+    pass
+
+
 class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
     T1 = typing.TypeVar("T1")
     T2 = typing.TypeVar("T2")
 
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
+
+    @staticmethod
+    def from_paired_row(sdfits: SDFits, paired_row: PairedRow) -> "PairedHDU":
+        return PairedHDU({k: sdfits.get_hdu_from_row(v) for k, v in paired_row.items()})
 
     def get_property(
         self,
@@ -309,7 +318,7 @@ class PositionSwitchedCalibration(Calibration):
     @staticmethod
     def pair_up_rows(
         rows: pandas.DataFrame,
-    ) -> list[dict[PairedScanName, pandas.Series]]:
+    ) -> list[PairedRow]:
         position_switched_rows = rows.query("PROCEDURE in ['OffOn', 'OnOff']")
         if len(rows) != len(position_switched_rows):
             loguru.logger.warning(
@@ -320,7 +329,7 @@ class PositionSwitchedCalibration(Calibration):
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
         groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
-        paired_up_rows: list[dict[PairedScanName, pandas.Series]] = list()
+        paired_up_rows: list[PairedRow] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
             ref_calon = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'T'")
@@ -335,7 +344,7 @@ class PositionSwitchedCalibration(Calibration):
                 continue
             paired_up_rows.extend(
                 [
-                    dict(
+                    PairedRow(
                         ref_caloff=ref_caloff_,
                         ref_calon=ref_calon_,
                         sig_caloff=sig_caloff_,
