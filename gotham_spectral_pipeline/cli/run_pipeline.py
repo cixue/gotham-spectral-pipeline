@@ -30,6 +30,15 @@ def main(args: argparse.Namespace):
     sdfits: SDFits = args.sdfits
     zenith_opacity: ZenithOpacity | None = args.zenith_opacity
 
+    if args.filter is None:
+        filtered_rows = sdfits.rows
+    else:
+        filtered_rows = sdfits.rows.query(args.filter)
+    paired_rows = PositionSwitchedCalibration.pair_up_rows(filtered_rows)
+
+    if len(paired_rows) == 0:
+        return
+
     start_frequency: float = args.start_frequency
     stop_frequency: float = args.stop_frequency
     channel_width: float = args.channel_width
@@ -38,12 +47,6 @@ def main(args: argparse.Namespace):
     frequency = start_frequency + numpy.arange(nchannel) * channel_width
     weighted_intensity = numpy.zeros(nchannel)
     inverse_variance = numpy.zeros(nchannel)
-
-    if args.filter is None:
-        filtered_rows = sdfits.rows
-    else:
-        filtered_rows = sdfits.rows.query(args.filter)
-    paired_rows = PositionSwitchedCalibration.pair_up_rows(filtered_rows)
 
     for paired_row in paired_rows:
         paired_hdu = PairedHDU.from_paired_row(sdfits, paired_row)
