@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from .cli import generate_cleo_command
+from .cli import generate_cleo_command, run_pipeline
 
 
 def main():
@@ -19,6 +19,7 @@ def main():
 
     subcommands = [
         generate_cleo_command,
+        run_pipeline,
     ]
     entry_points = dict()
     for subcommand in subcommands:
