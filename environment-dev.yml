@@ -5,6 +5,7 @@ dependencies:
   - python=3.10
   - ipykernel
   - ipympl
+  - austin
   - pyink
   - mypy
   - loguru
