@@ -327,6 +327,31 @@ class Spectrum:
                 self.frequency, Spectrum.FlagReason.NOT_FLAGGED, dtype=object
             )
 
+        self._sort_by_frequency()
+
+    def _sort_by_frequency(self):
+        is_sorted = lambda a: numpy.all(a[1:] >= a[:-1])
+
+        if is_sorted(self.frequency):
+            return
+
+        if is_sorted(self.frequency[::-1]):
+            self.frequency = self.frequency[::-1]
+            self.intensity = self.intensity[::-1]
+            if self.noise is not None:
+                self.noise = self.noise[::-1]
+            if self.flag is not None:
+                self.flag = self.flag[::-1]
+            return
+
+        sorted_idx = numpy.argsort(self.frequency)
+        self.frequency = self.frequency[sorted_idx]
+        self.intensity = self.intensity[sorted_idx]
+        if self.noise is not None:
+            self.noise = self.noise[sorted_idx]
+        if self.flag is not None:
+            self.flag = self.flag[sorted_idx]
+
     @property
     def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
         if self.flag is None:
