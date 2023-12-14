@@ -1,6 +1,7 @@
 import collections
 import enum
 import functools
+import itertools
 import typing
 
 import astropy.timeseries
@@ -302,8 +303,8 @@ class Spectrum:
         noise: numpy.typing.ArrayLike | None,
         no_flag: bool = False,
     ):
-        self.frequency = numpy.array(frequency)
-        self.intensity = numpy.array(intensity)
+        self.frequency = numpy.array(frequency).astype(numpy.float64)
+        self.intensity = numpy.array(intensity).astype(numpy.float64)
         if not (self.frequency.shape == self.intensity.shape):
             loguru.logger.error("Frequency and intensity do not have the same shape.")
             self.frequency = self.intensity = numpy.empty(0)
@@ -312,7 +313,7 @@ class Spectrum:
         if noise is None:
             self.noise = None
         else:
-            self.noise = numpy.array(noise)
+            self.noise = numpy.array(noise).astype(numpy.float64)
             if not (self.frequency.shape == self.noise.shape):
                 loguru.logger.error(
                     "Frequency, intensity and noise do not have the same shape."
@@ -361,17 +362,12 @@ class Spectrum:
         return self.flag != Spectrum.FlagReason.NOT_FLAGGED
 
     def detect_signal(
-        self, nadjacent, confidence
+        self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
         if self.noise is None:
             loguru.logger.warning("This spectrum has no noise.")
             return None
 
-        # TODO: This implementation can be optimized using bottleneck. It
-        # requires a expanding the parenthesis manually and rewrite p, q, r, u,
-        # v and w. It may hurt readability so performance should be measured
-        # before actually optimizing it.
-        #
         # Here, we want to calculate for each point the minimum chi-square that
         # (2n + 1) adjacent points centered on the given point lies on a
         # straight line mx + c.
@@ -380,41 +376,65 @@ class Spectrum:
         #   p * m + q * c = r
         #   u * m + v * c = w
         # where
-        width = 2 * nadjacent + 1
-        x = (
-            numpy.lib.stride_tricks.sliding_window_view(self.frequency, width)
-            - self.frequency[nadjacent:-nadjacent, None]
-        )
-        y = (
-            numpy.lib.stride_tricks.sliding_window_view(self.intensity, width)
-            - self.intensity[nadjacent:-nadjacent, None]
-        )
-        s = numpy.lib.stride_tricks.sliding_window_view(self.noise, width)
-        p = (x**2 / s**2).sum(axis=-1)
-        q = (x / s**2).sum(axis=-1)
-        r = (x * y / s**2).sum(axis=-1)
-        u = q
-        v = (1 / s**2).sum(axis=-1)
-        w = (y / s**2).sum(axis=-1)
-        # Solve the system of equation using Cramer's rule gives:
-        delta = p * v - u * q
-        m = (r * v - w * q) / delta
-        c = (p * w - u * r) / delta
-        # We can get chi-squared by definition
-        chi_squared = (((m[:, None] * x + c[:, None] - y) / s) ** 2).sum(axis=-1)
-        is_signal = numpy.where(scipy.special.chdtr(width, chi_squared) > confidence)[0]
+        #   p = Sum_i (x_i**2 / s_i**2)
+        #   q = Sum_i (x_i / s_i**2)
+        #   r = Sum_i (x_i * y_i / s_i**2)
+        #   u = q
+        #   v = Sum_i (1 / s_i**2)
+        #   w = Sum_i (y_i / s_i**2)
+        # Solving the set of equation using Cramer's rule for m and c and
+        # substitude them back to definition, we get
+        # chi-squared = (
+        #     sum_one_s2 * (sum_x2_s2 * sum_y2_s2 - sum_xy_s2 * sum_xy_s2)
+        #     + sum_x_s2 * (sum_xy_s2 * sum_y_s2 - sum_x_s2 * sum_y2_s2)
+        #     + sum_y_s2 * (sum_xy_s2 * sum_x_s2 - sum_y_s2 * sum_x2_s2)
+        # ) / (sum_one_s2 * sum_x2_s2 - sum_x_s2 * sum_x_s2)
+        size = self.frequency.size - 2 * nadjacent
+        chi_squared = numpy.empty(size, dtype=float)
+        for lb, ub in itertools.pairwise([*range(0, size, chunk_size), size]):
+            x = self.frequency[lb : ub + 2 * nadjacent]
+            y = self.intensity[lb : ub + 2 * nadjacent]
+            s = self.noise[lb : ub + 2 * nadjacent]
+            x = x - x.mean()
+            y = y - y.mean()
+            one_s2 = 1 / numpy.square(s)
+            x_s2 = x * one_s2
+            y_s2 = y * one_s2
+            x2_s2 = x * x_s2
+            xy_s2 = x * y_s2
+            y2_s2 = y * y_s2
+
+            width = 2 * nadjacent + 1
+            sum_one_s2 = bottleneck.move_sum(one_s2, window=width)[2 * nadjacent :]
+            sum_x_s2 = bottleneck.move_sum(x_s2, window=width)[2 * nadjacent :]
+            sum_y_s2 = bottleneck.move_sum(y_s2, window=width)[2 * nadjacent :]
+            sum_x2_s2 = bottleneck.move_sum(x2_s2, window=width)[2 * nadjacent :]
+            sum_xy_s2 = bottleneck.move_sum(xy_s2, window=width)[2 * nadjacent :]
+            sum_y2_s2 = bottleneck.move_sum(y2_s2, window=width)[2 * nadjacent :]
+
+            chi_squared[lb:ub] = (
+                sum_one_s2 * (sum_x2_s2 * sum_y2_s2 - sum_xy_s2 * sum_xy_s2)
+                + sum_x_s2 * (sum_xy_s2 * sum_y_s2 - sum_x_s2 * sum_y2_s2)
+                + sum_y_s2 * (sum_xy_s2 * sum_x_s2 - sum_y_s2 * sum_x2_s2)
+            ) / (sum_one_s2 * sum_x2_s2 - sum_x_s2 * sum_x_s2)
+
+        is_signal = numpy.where(chi_squared > scipy.special.chdtri(width, alpha))[0]
 
         res = numpy.zeros_like(self.frequency, dtype=bool)
         for i in range(width):
-            res[i : delta.size + i][is_signal] = True
+            res[i : size + i][is_signal] = True
         return res
 
-    def flag_rfi(self, nadjacent: int = 3, confidence: float = 0.999999):
+    def flag_rfi(
+        self, *, nadjacent: int = 3, alpha: float = 1e-6, chunk_size: int = 1024
+    ):
         if self.flag is None:
             loguru.logger.warning("This spectrum have no flags.")
             return
 
-        is_rfi = self.detect_signal(nadjacent, confidence)
+        is_rfi = self.detect_signal(
+            nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
+        )
         self.flag[is_rfi] = Spectrum.FlagReason.RFI
 
     def flag_head_tail(

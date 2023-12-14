@@ -61,7 +61,7 @@ def main(args: argparse.Namespace):
 
         spectrum.flag_rfi()
         spectrum.flag_head_tail(nchannel=2048)
-        is_signal = spectrum.detect_signal(nadjacent=128, confidence=0.999999)
+        is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
         baseline_result = spectrum.fit_baseline(
             method="hybrid",
             polynomial_options=dict(max_degree=20),
