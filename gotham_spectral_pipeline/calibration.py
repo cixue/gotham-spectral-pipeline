@@ -41,16 +41,24 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
         transformer: (
             typing.Callable[[T1], T1] | typing.Callable[[T1], T2]
         ) = lambda x: x,
-        default_scan: PairedScanName = "sig_caloff",
         property_name: str = "Property",
-    ) -> T1:
-        properties = {key: getter(hdu) for key, hdu in self.items()}
+        scan_names: list[PairedScanName] = [
+            "ref_caloff",
+            "ref_calon",
+            "sig_caloff",
+            "sig_calon",
+        ],
+    ) -> T1 | None:
+        if not scan_names:
+            loguru.logger.error("At least one scan should be provided.")
+            return None
+        properties = {key: getter(self[key]) for key in scan_names}
         transformed = set(map(transformer, properties.values()))
         if len(transformed) > 1:
             loguru.logger.warning(
-                f"{property_name} of each HDU are not identical. Using the one of {default_scan}."
+                f"{property_name} of each HDU are not identical. Using the one of {scan_names[0]}."
             )
-        return properties[default_scan]
+        return properties[scan_names[0]]
 
     def should_be_discarded(self, threshold=0.10):
         if any(hdu.header["EXPOSURE"] == 0.0 for hdu in self.values()):
@@ -118,8 +126,12 @@ class Calibration:
             return None
 
         wcs = paired_hdu.get_property(
-            getter=lambda hdu: astropy.wcs.WCS(hdu).spectral, transformer=str
+            getter=lambda hdu: astropy.wcs.WCS(hdu).spectral,
+            transformer=str,
+            property_name="WCS",
         )
+        if wcs is None:
+            return None
         if wcs.naxis != 1:
             loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
             return None
@@ -144,7 +156,11 @@ class Calibration:
         if frequency is None:
             return None
 
-        vframe = paired_hdu.get_property(getter=lambda hdu: hdu.header["VFRAME"])
+        vframe = paired_hdu.get_property(
+            getter=lambda hdu: hdu.header["VFRAME"], property_name="VFRAME"
+        )
+        if vframe is None:
+            return None
         beta = vframe / astropy.constants.c.to_value("m/s")
         if method == "default":
             doppler = numpy.sqrt((1 + beta) / (1 - beta))
@@ -160,24 +176,38 @@ class Calibration:
 
     @functools.lru_cache(maxsize=4)
     @staticmethod
-    def get_system_temperature(paired_hdu: PairedHDU) -> float | None:
+    def get_system_temperature(
+        paired_hdu: PairedHDU,
+        scan_name: typing.Literal["ref", "sig"],
+        trim_fraction: float = 0.1,
+    ) -> float | None:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
 
-        Tcal = paired_hdu.get_property(getter=lambda hdu: hdu.header["TCAL"])
+        caloff_name = f"{scan_name}_caloff"
+        calon_name = f"{scan_name}_calon"
+        Tcal = paired_hdu.get_property(
+            getter=lambda hdu: hdu.header["TCAL"],
+            property_name="TCAL",
+            scan_names=[caloff_name, calon_name],
+        )
+        if Tcal is None:
+            return None
 
-        ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "ref_caloff"
+        caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            caloff_name
         ].data.squeeze()
-        ref_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "ref_calon"
+        calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
+            calon_name
         ].data.squeeze()
 
-        trim_length = ref_caloff.size // 10
-        ref80_caloff = ref_caloff[trim_length:-trim_length]
-        ref80_calon = ref_calon[trim_length:-trim_length]
+        trim_length = int(caloff.size * trim_fraction)
+        caloff_trimmed = caloff[trim_length:-trim_length]
+        calon_trimmed = calon[trim_length:-trim_length]
 
-        Tsys = Tcal * (0.5 + ref80_caloff.mean() / (ref80_calon - ref80_caloff).mean())
+        Tsys = Tcal * (
+            0.5 + caloff_trimmed.mean() / (calon_trimmed - caloff_trimmed).mean()
+        )
         return Tsys
 
     @staticmethod
@@ -201,7 +231,9 @@ class Calibration:
     def get_antenna_temperature(
         paired_hdu: PairedHDU,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        Tsys = Calibration.get_system_temperature(paired_hdu)
+        Tsys = Calibration.get_system_temperature(
+            paired_hdu, scan_name="ref", trim_fraction=0.1
+        )
         if Tsys is None:
             return None
 
@@ -238,14 +270,24 @@ class Calibration:
     @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_estimated_noise(paired_hdu: PairedHDU) -> float | None:
-        Tsys = Calibration.get_system_temperature(paired_hdu)
+        Tsys = Calibration.get_system_temperature(
+            paired_hdu, scan_name="ref", trim_fraction=0.1
+        )
         if Tsys is None:
             return None
 
         frequency_resolution = paired_hdu.get_property(
-            lambda hdu: hdu.header["FREQRES"]
+            lambda hdu: hdu.header["FREQRES"],
+            property_name="FREQRES",
+            scan_names=["ref_caloff", "ref_calon"],
         )
-        exposure = paired_hdu.get_property(lambda hdu: hdu.header["EXPOSURE"])
+        exposure = paired_hdu.get_property(
+            lambda hdu: hdu.header["EXPOSURE"],
+            property_name="EXPOSURE",
+            scan_names=["ref_caloff", "ref_calon"],
+        )
+        if frequency_resolution is None or exposure is None:
+            return None
         estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
         return estimated_noise
 
