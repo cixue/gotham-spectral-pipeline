@@ -60,7 +60,7 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
             )
         return properties[scan_names[0]]
 
-    def should_be_discarded(self, threshold=0.10):
+    def should_be_discarded(self, threshold=0.10) -> bool:
         if any(hdu.header["EXPOSURE"] == 0.0 for hdu in self.values()):
             return True
 
@@ -166,12 +166,13 @@ class Calibration:
             doppler = numpy.sqrt((1 + beta) / (1 - beta))
             corrected_frequency = frequency * doppler
             return corrected_frequency
-        elif method == "four_chunks":
+        if method == "four_chunks":
             corrected_frequency = frequency.copy()
             for chunk in numpy.array_split(corrected_frequency, 4):
                 central_frequency = 0.5 * (chunk[0] + chunk[-1])
                 chunk += central_frequency * beta
             return corrected_frequency
+        loguru.logger.error("Invalid method. Supported are ['default', 'four_chunks']")
         return None
 
     @functools.lru_cache(maxsize=4)
