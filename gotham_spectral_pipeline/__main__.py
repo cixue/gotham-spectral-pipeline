@@ -2,6 +2,7 @@ import argparse
 import sys
 
 from .cli import generate_cleo_command, run_pipeline
+from .logging import capture_builtin_warnings, LogLimiter
 
 
 def main():
@@ -27,8 +28,13 @@ def main():
         subcommand.configure_parser(subparser)
         entry_points[subcommand.name()] = subcommand.main
 
+    capture_builtin_warnings()
+    log_limiter = LogLimiter(WARNING=30.0)
+
     args = parser.parse_args()
-    sys.exit(entry_points[args.command](args))
+    exit_code = entry_points[args.command](args)
+    log_limiter.log_silence_report()
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
