@@ -6,6 +6,7 @@ import re
 
 import astropy.io.fits
 import loguru
+import numpy
 import pandas
 
 __all__ = ["SDFits"]
@@ -13,7 +14,6 @@ __all__ = ["SDFits"]
 
 class SDFits:
     path: pathlib.Path
-    path_to_index: pathlib.Path
     header: dict[str, str]
     rows: pandas.DataFrame
 
@@ -27,18 +27,28 @@ class SDFits:
             FileNotFoundError: Raised if the index file cannot be located.
         """
         self.path = pathlib.Path(path)
-        if self.path.is_dir():
-            self.path_to_index = self.path / (self.path.name + ".index")
-        else:
-            self.path_to_index, self.path = self.path, self.path.parent
-        if not self.path_to_index.exists():
-            raise FileNotFoundError(f"{self.path_to_index} not found.")
 
-        blocks = SDFits._read_blocks(self.path_to_index)
-        self.header = SDFits._parse_header(blocks.pop("header"))
-        self.rows = SDFits._parse_rows(blocks.pop("rows"))
-        if blocks:
-            loguru.logger.warning(f"Found unused blocks: {list(blocks.keys())}.")
+        if self.path.is_dir() or self.path.name.endswith(".index"):
+            if self.path.is_dir():
+                path_to_index = self.path / (self.path.name + ".index")
+            else:
+                path_to_index, self.path = self.path, self.path.parent
+            if not path_to_index.exists():
+                raise FileNotFoundError(f"{path_to_index} not found.")
+
+            blocks = SDFits._read_blocks(path_to_index)
+            self.header = SDFits._parse_header(blocks.pop("header"))
+            self.rows = SDFits._parse_rows(blocks.pop("rows"))
+            if blocks:
+                loguru.logger.warning(f"Found unused blocks: {list(blocks.keys())}.")
+            return
+
+        if self.path.name.endswith(".fits"):
+            path_to_fits, self.path = self.path, self.path.parent
+            self.rows = self._build_rows_from_fits(path_to_fits)
+            return
+
+        loguru.logger.error("Unsupported file extension: {self.path}")
 
     @staticmethod
     def _read_blocks(path_to_index: pathlib.Path) -> dict[str, list[str]]:
@@ -79,6 +89,49 @@ class SDFits:
             len(result.group()) for result in column_header_matcher.finditer(lines[0])
         ]
         return pandas.read_fwf(io.StringIO("".join(lines)), widths=widths)
+
+    @staticmethod
+    def _build_rows_from_fits(path_to_fits: pathlib.Path) -> pandas.DataFrame:
+        with astropy.io.fits.open(path_to_fits, "readonly") as hdulist:
+            single_dish_extension = None
+            for extension, hdu in enumerate(hdulist):
+                if not isinstance(hdu, astropy.io.fits.hdu.table.BinTableHDU):
+                    continue
+                if hdu.name != "SINGLE DISH":
+                    continue
+                if single_dish_extension is not None:
+                    loguru.logger.error(
+                        "More than one BinTableHDU named 'SINGLE DISH' is found."
+                    )
+                    return
+                single_dish_extension = extension
+
+            if single_dish_extension is None:
+                loguru.logger.error("BinTableHDU named 'SINGLE DISH' is not found.")
+                return
+
+            hdu = hdulist[extension]
+            data_column_index = hdu.columns.names.index("DATA") + 1
+            ignored_column = [
+                "DATA",
+                f"TDIM{data_column_index}",
+                f"TUNIT{data_column_index}",
+            ]
+
+            nrows = hdu.data.size
+            rows = pandas.DataFrame()
+            rows["INDEX"] = numpy.arange(nrows)
+            rows["FILE"] = numpy.full(nrows, path_to_fits.name)
+            rows["EXT"] = single_dish_extension
+            rows["ROW"] = numpy.arange(nrows)
+            for column in hdu.columns:
+                if column.name in ignored_column:
+                    continue
+                data = hdu.data[column.name]
+                if data.dtype.byteorder != '=':
+                    data = data.byteswap(inplace=True).newbyteorder()
+                rows[column.name] = data
+            return rows
 
     def get_hdu_from_row(self, row: pandas.Series) -> astropy.io.fits.PrimaryHDU:
         """Get scan data represented by a record in the SDFits file.
