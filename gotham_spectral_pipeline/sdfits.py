@@ -12,6 +12,28 @@ import pandas
 __all__ = ["SDFits"]
 
 
+class FITSFileCache:
+    max_opened_file = 8
+    lru_cache: collections.OrderedDict[
+        pathlib.Path, astropy.io.fits.HDUList
+    ] = collections.OrderedDict()
+
+    def __init__(self, path: pathlib.Path):
+        self.path = path
+
+    def __enter__(self):
+        if self.path in FITSFileCache.lru_cache:
+            FITSFileCache.lru_cache.move_to_end(self.path)
+        else:
+            FITSFileCache.lru_cache[self.path] = astropy.io.fits.open(self.path, "readonly")
+        while len(FITSFileCache.lru_cache) > FITSFileCache.max_opened_file:
+            FITSFileCache.lru_cache.popitem(last=False)
+        return FITSFileCache.lru_cache[self.path]
+
+    def __exit__(self, *args):
+        pass
+
+
 class SDFits:
     path: pathlib.Path
     header: dict[str, str]
@@ -22,9 +44,6 @@ class SDFits:
 
         Args:
             path (str): Path to the SDFits directory or index file, e.g. ".../AGBT18B_007_16.raw.vegas/" or ".../AGBT18B_007_16.raw.vegas/AGBT18B_007_16.raw.vegas.index".
-
-        Raises:
-            FileNotFoundError: Raised if the index file cannot be located.
         """
         self.path = pathlib.Path(path)
 
@@ -34,7 +53,8 @@ class SDFits:
             else:
                 path_to_index, self.path = self.path, self.path.parent
             if not path_to_index.exists():
-                raise FileNotFoundError(f"{path_to_index} not found.")
+                loguru.logger.error(f"{path_to_index} not found.")
+                return
 
             blocks = SDFits._read_blocks(path_to_index)
             self.header = SDFits._parse_header(blocks.pop("header"))
@@ -45,7 +65,14 @@ class SDFits:
 
         if self.path.name.endswith(".fits"):
             path_to_fits, self.path = self.path, self.path.parent
-            self.rows = self._build_rows_from_fits(path_to_fits)
+            if not path_to_fits.exists():
+                loguru.logger.error(f"{path_to_fits} not found.")
+                return
+
+            rows = self._build_rows_from_fits(path_to_fits)
+            if rows is None:
+                return
+            self.rows = rows
             return
 
         loguru.logger.error("Unsupported file extension: {self.path}")
@@ -91,8 +118,8 @@ class SDFits:
         return pandas.read_fwf(io.StringIO("".join(lines)), widths=widths)
 
     @staticmethod
-    def _build_rows_from_fits(path_to_fits: pathlib.Path) -> pandas.DataFrame:
-        with astropy.io.fits.open(path_to_fits, "readonly") as hdulist:
+    def _build_rows_from_fits(path_to_fits: pathlib.Path) -> pandas.DataFrame | None:
+        with FITSFileCache(path_to_fits) as hdulist:
             single_dish_extension = None
             for extension, hdu in enumerate(hdulist):
                 if not isinstance(hdu, astropy.io.fits.hdu.table.BinTableHDU):
@@ -103,12 +130,12 @@ class SDFits:
                     loguru.logger.error(
                         "More than one BinTableHDU named 'SINGLE DISH' is found."
                     )
-                    return
+                    return None
                 single_dish_extension = extension
 
             if single_dish_extension is None:
                 loguru.logger.error("BinTableHDU named 'SINGLE DISH' is not found.")
-                return
+                return None
 
             hdu = hdulist[extension]
             data_column_index = hdu.columns.names.index("DATA") + 1
@@ -127,8 +154,8 @@ class SDFits:
             for column in hdu.columns:
                 if column.name in ignored_column:
                     continue
-                data = hdu.data[column.name]
-                if data.dtype.byteorder != '=':
+                data = numpy.array(hdu.data[column.name])
+                if data.dtype.byteorder != "=":
                     data = data.byteswap(inplace=True).newbyteorder()
                 rows[column.name] = data
             return rows
@@ -145,7 +172,7 @@ class SDFits:
         path = self.path / row["FILE"]
         extension = row["EXT"]
         row_number = row["ROW"]
-        with astropy.io.fits.open(path, "readonly") as hdulist:
+        with FITSFileCache(path) as hdulist:
             hdu = hdulist[extension]
             data_column_index = hdu.columns.names.index("DATA") + 1
             ignored_column = [
