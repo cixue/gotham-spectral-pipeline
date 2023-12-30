@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import pathlib
 
 import numpy
@@ -48,7 +49,7 @@ def main(args: argparse.Namespace):
     weighted_intensity = numpy.zeros(nchannel)
     inverse_variance = numpy.zeros(nchannel)
 
-    for paired_row in paired_rows:
+    for paired_row in itertools.chain.from_iterable(paired_rows):
         paired_hdu = PairedHDU.from_paired_row(sdfits, paired_row)
         if paired_hdu.should_be_discarded():
             continue

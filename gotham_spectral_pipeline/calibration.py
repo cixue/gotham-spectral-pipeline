@@ -15,7 +15,13 @@ import numpy
 import numpy.typing
 import pandas
 
-__all__ = ["PairedRow", "PairedHDU", "Calibration", "PositionSwitchedCalibration"]
+__all__ = [
+    "PairedRow",
+    "PairedHDU",
+    "Calibration",
+    "PositionSwitchedCalibration",
+    "PointingCalibration",
+]
 
 PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
 
@@ -363,7 +369,7 @@ class PositionSwitchedCalibration(Calibration):
     @staticmethod
     def pair_up_rows(
         rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
-    ) -> list[PairedRow]:
+    ) -> list[list[PairedRow]]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
 
@@ -377,7 +383,7 @@ class PositionSwitchedCalibration(Calibration):
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
         groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
-        paired_up_rows: list[PairedRow] = list()
+        paired_up_rows: list[list[PairedRow]] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
             ref_calon = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'T'")
@@ -390,7 +396,61 @@ class PositionSwitchedCalibration(Calibration):
                     f"Numbers of rows in each scan do not match for {group = }. {len(ref_caloff) = }, {len(ref_calon) = }, {len(sig_caloff) = }, {len(sig_calon) = }."
                 )
                 continue
-            paired_up_rows.extend(
+            paired_up_rows.append(
+                [
+                    PairedRow(
+                        ref_caloff=ref_caloff_,
+                        ref_calon=ref_calon_,
+                        sig_caloff=sig_caloff_,
+                        sig_calon=sig_calon_,
+                    )
+                    for (
+                        (_, ref_caloff_),
+                        (_, ref_calon_),
+                        (_, sig_caloff_),
+                        (_, sig_calon_),
+                    ) in zip(
+                        ref_caloff.iterrows(),
+                        ref_calon.iterrows(),
+                        sig_caloff.iterrows(),
+                        sig_calon.iterrows(),
+                    )
+                ]
+            )
+        return paired_up_rows
+
+
+class PointingCalibration(Calibration):
+
+    @staticmethod
+    def pair_up_rows(
+        rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
+    ) -> list[list[PairedRow]]:
+        query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
+        rows = rows.query(" and ".join(query)) if query else rows
+
+        pointing_rows = rows.query("PROCTYPE.str.strip() == 'POINTING'")
+        if len(rows) != len(pointing_rows):
+            loguru.logger.warning(
+                f"Found {len(rows) - len(pointing_rows)} rows that are not pointing scans."
+            )
+
+        rows = pointing_rows
+        groups = rows.groupby(["OBJECT", "SCAN", "PLNUM"])
+        paired_up_rows: list[list[PairedRow]] = list()
+        for group, rows_in_group in groups:
+            ref_caloff = rows_in_group.query("FDNUM == 1 and CAL == 'F'")
+            ref_calon = rows_in_group.query("FDNUM == 1 and CAL == 'T'")
+            sig_caloff = rows_in_group.query("FDNUM == 0 and CAL == 'F'")
+            sig_calon = rows_in_group.query("FDNUM == 0 and CAL == 'T'")
+            if not (
+                len(ref_caloff) == len(ref_calon) == len(sig_caloff) == len(sig_calon)
+            ):
+                loguru.logger.warning(
+                    f"Numbers of rows in each scan do not match for {group = }. {len(ref_caloff) = }, {len(ref_calon) = }, {len(sig_caloff) = }, {len(sig_calon) = }."
+                )
+                continue
+            paired_up_rows.append(
                 [
                     PairedRow(
                         ref_caloff=ref_caloff_,
