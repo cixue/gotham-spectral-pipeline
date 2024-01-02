@@ -7,9 +7,9 @@ import datetime
 import functools
 import typing
 
-import astropy.constants
-import astropy.io.fits
-import astropy.wcs
+import astropy.constants  # type: ignore
+import astropy.io.fits  # type: ignore
+import astropy.wcs  # type: ignore
 import loguru
 import numpy
 import numpy.typing
@@ -191,8 +191,8 @@ class Calibration:
         if not Calibration._verify_paired_hdu(paired_hdu):
             return None
 
-        caloff_name = f"{scan_name}_caloff"
-        calon_name = f"{scan_name}_calon"
+        caloff_name: typing.Literal["ref_caloff", "sig_caloff"] = f"{scan_name}_caloff"  # type: ignore
+        calon_name: typing.Literal["ref_calon", "sig_calon"] = f"{scan_name}_calon"  # type: ignore
         Tcal = paired_hdu.get_property(
             getter=lambda hdu: hdu.header["TCAL"],
             property_name="TCAL",

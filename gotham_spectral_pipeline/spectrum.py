@@ -4,13 +4,13 @@ import functools
 import itertools
 import typing
 
-import astropy.timeseries
-import bottleneck
+import astropy.timeseries  # type: ignore
+import bottleneck  # type: ignore
 import loguru
 import numpy
 import numpy.polynomial.polynomial as poly
 import numpy.typing
-import scipy.special
+import scipy.special  # type: ignore
 
 __all__ = ["Spectrum"]
 

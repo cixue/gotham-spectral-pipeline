@@ -4,7 +4,7 @@ import io
 import pathlib
 import re
 
-import astropy.io.fits
+import astropy.io.fits  # type: ignore
 import loguru
 import numpy
 import pandas
