@@ -289,7 +289,7 @@ class Spectrum:
     frequency: numpy.typing.NDArray[numpy.floating]
     intensity: numpy.typing.NDArray[numpy.floating]
     noise: numpy.typing.NDArray[numpy.floating] | None
-    flag: numpy.typing.NDArray[numpy.object_] | None
+    flag: numpy.typing.NDArray[numpy.integer] | None
 
     class FlagReason(enum.Enum):
         NOT_FLAGGED = 0
@@ -325,7 +325,7 @@ class Spectrum:
             self.flag = None
         else:
             self.flag = numpy.full_like(
-                self.frequency, Spectrum.FlagReason.NOT_FLAGGED, dtype=object
+                self.frequency, Spectrum.FlagReason.NOT_FLAGGED.value
             )
 
         self._sort_by_frequency()
@@ -359,7 +359,7 @@ class Spectrum:
             loguru.logger.warning("This spectrum have no flags.")
             return numpy.full_like(self.frequency, False)
 
-        return self.flag != Spectrum.FlagReason.NOT_FLAGGED
+        return self.flag != Spectrum.FlagReason.NOT_FLAGGED.value
 
     def detect_signal(
         self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
@@ -435,7 +435,7 @@ class Spectrum:
         is_rfi = self.detect_signal(
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
-        self.flag[is_rfi] = Spectrum.FlagReason.RFI
+        self.flag[is_rfi] = Spectrum.FlagReason.RFI.value
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
@@ -451,7 +451,9 @@ class Spectrum:
                 return
             nchannel = int(self.frequency.size * fraction)
 
-        self.flag[:nchannel] = self.flag[-nchannel:] = Spectrum.FlagReason.CHUNK_EDGES
+        self.flag[:nchannel] = self.flag[
+            -nchannel:
+        ] = Spectrum.FlagReason.CHUNK_EDGES.value
 
     def fit_baseline(
         self,
