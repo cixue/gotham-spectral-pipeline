@@ -209,8 +209,9 @@ class Calibration:
         ].data.squeeze()
 
         trim_length = int(caloff.size * trim_fraction)
-        caloff_trimmed = caloff[trim_length:-trim_length]
-        calon_trimmed = calon[trim_length:-trim_length]
+        if trim_length > 0:
+            caloff_trimmed = caloff[trim_length:-trim_length]
+            calon_trimmed = calon[trim_length:-trim_length]
 
         Tsys = Tcal * (
             0.5 + caloff_trimmed.mean() / (calon_trimmed - caloff_trimmed).mean()

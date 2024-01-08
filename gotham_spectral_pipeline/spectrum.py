@@ -451,9 +451,10 @@ class Spectrum:
                 return
             nchannel = int(self.frequency.size * fraction)
 
-        self.flag[:nchannel] = self.flag[
-            -nchannel:
-        ] = Spectrum.FlagReason.CHUNK_EDGES.value
+        if nchannel > 0:
+            self.flag[:nchannel] = self.flag[
+                -nchannel:
+            ] = Spectrum.FlagReason.CHUNK_EDGES.value
 
     def fit_baseline(
         self,
