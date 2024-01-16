@@ -28,7 +28,7 @@ class LogLimiter:
     _regex_number_matcher: re.Pattern
     _do_not_filter: bool
 
-    def __init__(self, **rate_setting: dict[str, float]):
+    def __init__(self, **rate_setting: float):
         self._rate_setting = {
             level: 0
             for level in [
