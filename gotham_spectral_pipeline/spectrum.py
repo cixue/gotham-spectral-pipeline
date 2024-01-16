@@ -353,6 +353,128 @@ class Spectrum:
         if self.flag is not None:
             self.flag = self.flag[sorted_idx]
 
+    def __add__(self, other: "Spectrum") -> "Spectrum":
+        if isinstance(other, Spectrum):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity + other.intensity
+            if self.noise is not None and other.noise is not None:
+                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+            else:
+                noise = None
+            if self.flag is None and other.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        return NotImplemented
+
+    def __sub__(self, other: "Spectrum") -> "Spectrum":
+        if isinstance(other, Spectrum):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity - other.intensity
+            if self.noise is not None and other.noise is not None:
+                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+            else:
+                noise = None
+            if self.flag is None and other.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        return NotImplemented
+
+    def __mul__(self, other: "int | float | Spectrum") -> "Spectrum":
+        if isinstance(other, int) or isinstance(other, float):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity * other
+            if self.noise is not None:
+                noise = self.noise * other
+            else:
+                noise = None
+            if self.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        if isinstance(other, Spectrum):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity * other.intensity
+            if self.noise is not None and other.noise is not None:
+                noise = intensity * numpy.sqrt(
+                    numpy.square(self.noise / self.intensity)
+                    + numpy.square(other.noise / other.intensity)
+                )
+            else:
+                noise = None
+            if self.flag is None and other.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        return NotImplemented
+
+    def __rmul__(self, other: int | float):
+        return self * other
+
+    def __truediv__(self, other: "int | float | Spectrum") -> "Spectrum":
+        if isinstance(other, int) or isinstance(other, float):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity / other
+            if self.noise is not None:
+                noise = self.noise / other
+            else:
+                noise = None
+            if self.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        if isinstance(other, Spectrum):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = self.intensity / other.intensity
+            if self.noise is not None and other.noise is not None:
+                noise = intensity * numpy.sqrt(
+                    numpy.square(self.noise / self.intensity)
+                    + numpy.square(other.noise / other.intensity)
+                )
+            else:
+                noise = None
+            if self.flag is None and other.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        return NotImplemented
+
+    def __rtruediv__(self, other: int | float) -> "Spectrum":
+        if isinstance(other, int) or isinstance(other, float):
+            # Assume both spectra have the same frequency
+            frequency = self.frequency
+            intensity = other / self.intensity
+            if self.noise is not None:
+                noise = intensity * (self.noise / self.intensity)
+            else:
+                noise = None
+            if self.flag is None:
+                no_flag = True
+            else:
+                no_flag = False
+            return Spectrum(frequency, intensity, noise, no_flag)
+
+        return NotImplemented
+
     @property
     def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
         if self.flag is None:
