@@ -16,30 +16,25 @@ import numpy.typing
 import pandas
 
 __all__ = [
-    "PairedRow",
-    "PairedHDU",
+    "CalOnOffPairedHDU",
+    "CalOnOffPairedRow",
+    "SigRefPairedHDU",
+    "SigRefPairedRow",
     "Calibration",
     "PositionSwitchedCalibration",
     "PointingCalibration",
 ]
 
-PairedScanName = typing.Literal["ref_caloff", "ref_calon", "sig_caloff", "sig_calon"]
+CalOnOffName = typing.Literal["calon", "caloff"]
+SigRefName = typing.Literal["sig", "ref"]
 
 
-class PairedRow(dict[PairedScanName, pandas.Series]):
-    pass
-
-
-class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
+class CalOnOffPairedHDU(dict[CalOnOffName, astropy.io.fits.PrimaryHDU]):
     T1 = typing.TypeVar("T1")
     T2 = typing.TypeVar("T2")
 
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
-
-    @staticmethod
-    def from_paired_row(sdfits: SDFits, paired_row: PairedRow) -> "PairedHDU":
-        return PairedHDU({k: sdfits.get_hdu_from_row(v) for k, v in paired_row.items()})
 
     def get_property(
         self,
@@ -48,96 +43,44 @@ class PairedHDU(dict[PairedScanName, astropy.io.fits.PrimaryHDU]):
             typing.Callable[[T1], T1] | typing.Callable[[T1], T2]
         ) = lambda x: x,
         property_name: str = "Property",
-        scan_names: list[PairedScanName] = [
-            "ref_caloff",
-            "ref_calon",
-            "sig_caloff",
-            "sig_calon",
-        ],
-    ) -> T1 | None:
-        if not scan_names:
-            loguru.logger.error("At least one scan should be provided.")
-            return None
-        properties = {key: getter(self[key]) for key in scan_names}
+    ) -> T1:
+        properties = {key: getter(self[key]) for key in self.keys()}
         transformed = set(map(transformer, properties.values()))
+        default_scan: typing.Final = "caloff"
         if len(transformed) > 1:
             loguru.logger.warning(
-                f"{property_name} of each HDU are not identical. Using the one of {scan_names[0]}."
+                f"{property_name} of each HDU are not identical. Using the one of {default_scan}."
             )
-        return properties[scan_names[0]]
+        return properties[default_scan]
 
-    def should_be_discarded(self, threshold=0.10) -> bool:
-        if any(hdu.header["EXPOSURE"] == 0.0 for hdu in self.values()):
-            return True
 
-        if numpy.all(self["ref_caloff"].data == self["sig_caloff"].data) and numpy.all(
-            self["ref_calon"].data == self["sig_calon"].data
-        ):
-            return True
+class CalOnOffPairedRow(dict[CalOnOffName, pandas.Series]):
 
-        averages = {key: numpy.nanmean(hdu.data) for key, hdu in self.items()}
-        if any(numpy.isnan(avg) for avg in averages.values()):
-            return True
+    def get_paired_hdu(self, sdfits: SDFits) -> CalOnOffPairedHDU:
+        return CalOnOffPairedHDU(
+            {k: sdfits.get_hdu_from_row(v) for k, v in self.items()}
+        )
 
-        percentage_difference = [
-            abs(a - b) / (0.5 * (a + b))
-            for a, b in [
-                (averages["ref_caloff"], averages["sig_caloff"]),
-                (averages["ref_calon"], averages["sig_calon"]),
-            ]
-        ]
-        if any(
-            not numpy.isfinite(pd) or pd > threshold for pd in percentage_difference
-        ):
-            return True
 
-        return False
+class SigRefPairedHDU(dict[SigRefName, CalOnOffPairedHDU]):
+    pass
+
+
+class SigRefPairedRow(dict[SigRefName, CalOnOffPairedRow]):
+
+    def get_paired_hdu(self, sdfits: SDFits) -> SigRefPairedHDU:
+        return SigRefPairedHDU({k: v.get_paired_hdu(sdfits) for k, v, in self.items()})
 
 
 class Calibration:
 
     @staticmethod
-    def _verify_paired_hdu(paired_hdu: PairedHDU) -> bool:
-        ref_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "ref_caloff"
-        ].data.squeeze()
-        ref_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "ref_calon"
-        ].data.squeeze()
-        sig_caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "sig_caloff"
-        ].data.squeeze()
-        sig_calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            "sig_calon"
-        ].data.squeeze()
-        if not (
-            ref_caloff.shape == ref_calon.shape == sig_caloff.shape == sig_calon.shape
-        ):
-            loguru.logger.error("Length of paired HDUs are not identical.")
-            return False
-
-        if ref_caloff.ndim != 1:
-            loguru.logger.error("Expecting paired HDUs to be 1D.")
-            return False
-
-        return True
-
-    @staticmethod
-    def get_frequency(
-        paired_hdu: PairedHDU,
+    def get_observed_frequency(
+        hdu: astropy.io.fits.PrimaryHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        if not Calibration._verify_paired_hdu(paired_hdu):
-            return None
-
-        wcs = paired_hdu.get_property(
-            getter=lambda hdu: astropy.wcs.WCS(hdu).spectral,
-            transformer=str,
-            property_name="WCS",
-        )
-        if wcs is None:
-            return None
+        wcs = astropy.wcs.WCS(hdu).spectral
         if wcs.naxis != 1:
             loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
             return None
@@ -153,20 +96,16 @@ class Calibration:
 
     @staticmethod
     def get_corrected_frequency(
-        paired_hdu: PairedHDU,
+        hdu: astropy.io.fits.PrimaryHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
         method: typing.Literal["default", "four_chunks"] = "default",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_frequency(paired_hdu, loc=loc, unit=unit)
+        frequency = Calibration.get_observed_frequency(hdu, loc=loc, unit=unit)
         if frequency is None:
             return None
 
-        vframe = paired_hdu.get_property(
-            getter=lambda hdu: hdu.header["VFRAME"], property_name="VFRAME"
-        )
-        if vframe is None:
-            return None
+        vframe = hdu.header["VFRAME"]
         beta = vframe / astropy.constants.c.to_value("m/s")
         if method == "default":
             doppler = numpy.sqrt((1 + beta) / (1 - beta))
@@ -181,37 +120,36 @@ class Calibration:
         loguru.logger.error("Invalid method. Supported are ['default', 'four_chunks']")
         return None
 
+    @staticmethod
+    def get_calibration_temperature(
+        calonoffpair: CalOnOffPairedHDU,
+    ) -> float:
+        Tcal = calonoffpair.get_property(
+            getter=lambda hdu: hdu.header["TCAL"],
+            property_name="TCAL",
+        )
+        return Tcal
+
     @functools.lru_cache(maxsize=4)
     @staticmethod
     def get_system_temperature(
-        paired_hdu: PairedHDU,
-        scan_name: typing.Literal["ref", "sig"],
+        calonoffpair: CalOnOffPairedHDU,
+        Tcal: float | None = None,
         trim_fraction: float = 0.1,
-    ) -> float | None:
-        if not Calibration._verify_paired_hdu(paired_hdu):
-            return None
-
-        caloff_name: typing.Literal["ref_caloff", "sig_caloff"] = f"{scan_name}_caloff"  # type: ignore
-        calon_name: typing.Literal["ref_calon", "sig_calon"] = f"{scan_name}_calon"  # type: ignore
-        Tcal = paired_hdu.get_property(
-            getter=lambda hdu: hdu.header["TCAL"],
-            property_name="TCAL",
-            scan_names=[caloff_name, calon_name],
-        )
+    ) -> float:
         if Tcal is None:
-            return None
+            Tcal = Calibration.get_calibration_temperature(calonoffpair)
 
-        caloff: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            caloff_name
-        ].data.squeeze()
-        calon: numpy.typing.NDArray[numpy.floating] = paired_hdu[
-            calon_name
-        ].data.squeeze()
+        caloff = calonoffpair["caloff"].data.squeeze()
+        calon = calonoffpair["calon"].data.squeeze()
 
         trim_length = int(caloff.size * trim_fraction)
-        if trim_length > 0:
+        if trim_length != 0:
             caloff_trimmed = caloff[trim_length:-trim_length]
             calon_trimmed = calon[trim_length:-trim_length]
+        else:
+            caloff_trimmed = caloff
+            calon_trimmed = calon
 
         Tsys = Tcal * (
             0.5 + caloff_trimmed.mean() / (calon_trimmed - caloff_trimmed).mean()
@@ -219,150 +157,71 @@ class Calibration:
         return Tsys
 
     @staticmethod
+    def get_total_power_spectrum(
+        calonoffpair: CalOnOffPairedHDU,
+        Tcal: float | None = None,
+        Tsys: float | None = None,
+        ref_calonoffpair: CalOnOffPairedHDU | None = None,
+        freq_kwargs: dict = dict(),
+    ) -> Spectrum | None:
+        frequency = calonoffpair.get_property(
+            lambda hdu: Calibration.get_corrected_frequency(hdu, **freq_kwargs),
+            transformer=lambda ndarray: ndarray.tobytes(),
+            property_name="Frequency grid",
+        )
+        if frequency is None:
+            return None
+
+        if Tcal is None:
+            Tcal = Calibration.get_calibration_temperature(calonoffpair)
+
+        if Tsys is None:
+            Tsys = Calibration.get_system_temperature(calonoffpair, Tcal=Tcal)
+
+        sig = 0.5 * (
+            calonoffpair["calon"].data.squeeze() + calonoffpair["caloff"].data.squeeze()
+        )
+        if ref_calonoffpair is None:
+            ref = sig
+        else:
+            ref = 0.5 * (
+                ref_calonoffpair["calon"].data.squeeze()
+                + ref_calonoffpair["caloff"].data.squeeze()
+            )
+        intensity = Tsys * sig / ref - 0.5 * Tcal
+
+        frequency_resolution = calonoffpair.get_property(
+            lambda hdu: hdu.header["FREQRES"],
+            property_name="FREQRES",
+        )
+        exposure = (
+            calonoffpair["calon"].header["EXPOSURE"]
+            + calonoffpair["caloff"].header["EXPOSURE"]
+        )
+        noise = numpy.full_like(
+            frequency, Tsys / numpy.sqrt(frequency_resolution * exposure)
+        )
+
+        return Spectrum(frequency=frequency, intensity=intensity, noise=noise)
+
+    @staticmethod
     def get_temperature_correction_factor(
-        paired_hdu: PairedHDU,
+        calonoffpair: CalOnOffPairedHDU,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_frequency(paired_hdu, loc="center", unit="Hz")
+        frequency = Calibration.get_observed_frequency(
+            calonoffpair, loc="center", unit="Hz"
+        )
         if frequency is None:
             return None
 
         timestamp = datetime_parser(
-            paired_hdu["sig_caloff"].header["DATE-OBS"]
+            calonoffpair["caloff"].header["DATE-OBS"]
         ).timestamp()
         tau = zenith_opacity.get_opacity(timestamp, frequency)
-        elevation = paired_hdu["sig_caloff"].header["ELEVATIO"]
+        elevation = calonoffpair["caloff"].header["ELEVATIO"]
         return numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
-
-    @staticmethod
-    def get_antenna_temperature(
-        paired_hdu: PairedHDU,
-    ) -> numpy.typing.NDArray[numpy.floating] | None:
-        Tsys = Calibration.get_system_temperature(
-            paired_hdu, scan_name="ref", trim_fraction=0.1
-        )
-        if Tsys is None:
-            return None
-
-        ref = 0.5 * (
-            paired_hdu["ref_caloff"].data.squeeze()
-            + paired_hdu["ref_calon"].data.squeeze()
-        )
-        sig = 0.5 * (
-            paired_hdu["sig_caloff"].data.squeeze()
-            + paired_hdu["sig_calon"].data.squeeze()
-        )
-
-        Ta = Tsys * (sig - ref) / ref
-        return Ta
-
-    @staticmethod
-    def get_corrected_antenna_temperature(
-        paired_hdu: PairedHDU,
-        zenith_opacity: ZenithOpacity,
-        eta_l: float = 0.99,
-    ) -> numpy.typing.NDArray[numpy.floating] | None:
-        Ta = Calibration.get_antenna_temperature(paired_hdu)
-        if Ta is None:
-            return None
-
-        correction_factor = Calibration.get_temperature_correction_factor(
-            paired_hdu, zenith_opacity, eta_l
-        )
-        if correction_factor is None:
-            return None
-
-        return Ta * correction_factor
-
-    @functools.lru_cache(maxsize=4)
-    @staticmethod
-    def get_estimated_noise(paired_hdu: PairedHDU) -> float | None:
-        Tsys = Calibration.get_system_temperature(
-            paired_hdu, scan_name="ref", trim_fraction=0.1
-        )
-        if Tsys is None:
-            return None
-
-        frequency_resolution = paired_hdu.get_property(
-            lambda hdu: hdu.header["FREQRES"],
-            property_name="FREQRES",
-            scan_names=["ref_caloff", "ref_calon"],
-        )
-        exposure = paired_hdu.get_property(
-            lambda hdu: hdu.header["EXPOSURE"],
-            property_name="EXPOSURE",
-            scan_names=["ref_caloff", "ref_calon"],
-        )
-        if frequency_resolution is None or exposure is None:
-            return None
-        estimated_noise = Tsys / numpy.sqrt(frequency_resolution * exposure)
-        return estimated_noise
-
-    @staticmethod
-    def get_corrected_estimated_noise(
-        paired_hdu: PairedHDU,
-        zenith_opacity: ZenithOpacity,
-        eta_l: float = 0.99,
-    ) -> numpy.typing.NDArray[numpy.floating] | None:
-        estimated_noise = Calibration.get_estimated_noise(paired_hdu)
-        if estimated_noise is None:
-            return None
-
-        correction_factor = Calibration.get_temperature_correction_factor(
-            paired_hdu, zenith_opacity, eta_l
-        )
-        if correction_factor is None:
-            return None
-        return estimated_noise * correction_factor
-
-    @staticmethod
-    def get_calibrated_spectrum(
-        paired_hdu: PairedHDU,
-        freq_kwargs=dict(),
-    ) -> Spectrum | None:
-        freq_kwargs = dict(loc="center", unit="Hz") | freq_kwargs
-        frequency = Calibration.get_corrected_frequency(paired_hdu, **freq_kwargs)
-        if frequency is None:
-            return None
-
-        Ta = Calibration.get_antenna_temperature(paired_hdu)
-        if Ta is None:
-            return None
-
-        noise = Calibration.get_estimated_noise(paired_hdu)
-        if noise is None:
-            return None
-
-        return Spectrum(
-            frequency=frequency, intensity=Ta, noise=numpy.full_like(Ta, noise)
-        )
-
-    @staticmethod
-    def get_corrected_calibrated_spectrum(
-        paired_hdu: PairedHDU,
-        zenith_opacity: ZenithOpacity,
-        eta_l: float = 0.99,
-        freq_kwargs=dict(),
-    ) -> Spectrum | None:
-        freq_kwargs = dict(loc="center", unit="Hz") | freq_kwargs
-        frequency = Calibration.get_corrected_frequency(paired_hdu, **freq_kwargs)
-        if frequency is None:
-            return None
-
-        Ta = Calibration.get_corrected_antenna_temperature(
-            paired_hdu, zenith_opacity, eta_l
-        )
-        if Ta is None:
-            return None
-
-        noise = Calibration.get_corrected_estimated_noise(
-            paired_hdu, zenith_opacity, eta_l
-        )
-        if noise is None:
-            return None
-
-        return Spectrum(frequency=frequency, intensity=Ta, noise=noise)
 
 
 class PositionSwitchedCalibration(Calibration):
@@ -370,7 +229,7 @@ class PositionSwitchedCalibration(Calibration):
     @staticmethod
     def pair_up_rows(
         rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
-    ) -> list[list[PairedRow]]:
+    ) -> list[list[SigRefPairedRow]]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
 
@@ -384,7 +243,7 @@ class PositionSwitchedCalibration(Calibration):
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
         groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
-        paired_up_rows: list[list[PairedRow]] = list()
+        paired_up_rows: list[list[SigRefPairedRow]] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
             ref_calon = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'T'")
@@ -399,11 +258,9 @@ class PositionSwitchedCalibration(Calibration):
                 continue
             paired_up_rows.append(
                 [
-                    PairedRow(
-                        ref_caloff=ref_caloff_,
-                        ref_calon=ref_calon_,
-                        sig_caloff=sig_caloff_,
-                        sig_calon=sig_calon_,
+                    SigRefPairedRow(
+                        ref=CalOnOffPairedRow(caloff=ref_caloff_, calon=ref_calon_),
+                        sig=CalOnOffPairedRow(caloff=sig_caloff_, calon=sig_calon_),
                     )
                     for (
                         (_, ref_caloff_),
@@ -420,13 +277,89 @@ class PositionSwitchedCalibration(Calibration):
             )
         return paired_up_rows
 
+    @staticmethod
+    def should_be_discarded(sigrefpair: SigRefPairedHDU, threshold=0.10) -> bool:
+        if any(
+            hdu.header["EXPOSURE"] == 0.0
+            for calonoffpair in sigrefpair.values()
+            for hdu in calonoffpair.values()
+        ):
+            return True
+
+        if numpy.all(
+            sigrefpair["ref"]["caloff"].data == sigrefpair["sig"]["caloff"].data
+        ) and numpy.all(
+            sigrefpair["ref"]["calon"].data == sigrefpair["sig"]["calon"].data
+        ):
+            return True
+
+        averages = {
+            sigref: {
+                calonoff: numpy.nanmean(hdu.data)
+                for calonoff, hdu in calonoffpair.items()
+            }
+            for sigref, calonoffpair in sigrefpair.items()
+        }
+        if any(
+            numpy.isnan(avg)
+            for calonoffavgs in averages.values()
+            for avg in calonoffavgs.values()
+        ):
+            return True
+
+        percentage_difference = [
+            abs(a - b) / (0.5 * (a + b))
+            for a, b in [
+                (averages["ref"]["caloff"], averages["sig"]["caloff"]),
+                (averages["ref"]["calon"], averages["sig"]["calon"]),
+            ]
+        ]
+        if any(
+            not numpy.isfinite(pd) or pd > threshold for pd in percentage_difference
+        ):
+            return True
+
+        return False
+
+    @staticmethod
+    def get_calibrated_spectrum(
+        sigrefpair: SigRefPairedHDU,
+        freq_kwargs: dict = dict(),
+    ) -> Spectrum | None:
+        sig_calonoffpair = sigrefpair["sig"]
+        ref_calonoffpair = sigrefpair["ref"]
+        Tcal = Calibration.get_calibration_temperature(ref_calonoffpair)
+        Tsys = Calibration.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
+
+        ref_total_power = Calibration.get_total_power_spectrum(
+            ref_calonoffpair,
+            Tcal=Tcal,
+            Tsys=Tsys,
+            ref_calonoffpair=ref_calonoffpair,
+            freq_kwargs=freq_kwargs,
+        )
+        if ref_total_power is None:
+            return None
+
+        sig_total_power = Calibration.get_total_power_spectrum(
+            sig_calonoffpair,
+            Tcal=Tcal,
+            Tsys=Tsys,
+            ref_calonoffpair=ref_calonoffpair,
+            freq_kwargs=freq_kwargs,
+        )
+        if sig_total_power is None:
+            return None
+
+        return sig_total_power - ref_total_power
+
 
 class PointingCalibration(Calibration):
 
     @staticmethod
     def pair_up_rows(
         rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
-    ) -> list[list[PairedRow]]:
+    ) -> list[list[SigRefPairedRow]]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
 
@@ -438,7 +371,7 @@ class PointingCalibration(Calibration):
 
         rows = pointing_rows
         groups = rows.groupby(["OBJECT", "SCAN", "PLNUM"])
-        paired_up_rows: list[list[PairedRow]] = list()
+        paired_up_rows: list[list[SigRefPairedRow]] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("FDNUM == 1 and CAL == 'F'")
             ref_calon = rows_in_group.query("FDNUM == 1 and CAL == 'T'")
@@ -453,11 +386,9 @@ class PointingCalibration(Calibration):
                 continue
             paired_up_rows.append(
                 [
-                    PairedRow(
-                        ref_caloff=ref_caloff_,
-                        ref_calon=ref_calon_,
-                        sig_caloff=sig_caloff_,
-                        sig_calon=sig_calon_,
+                    SigRefPairedRow(
+                        ref=CalOnOffPairedRow(caloff=ref_caloff_, calon=ref_calon_),
+                        sig=CalOnOffPairedRow(caloff=sig_caloff_, calon=sig_calon_),
                     )
                     for (
                         (_, ref_caloff_),

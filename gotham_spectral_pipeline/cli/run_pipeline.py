@@ -4,7 +4,7 @@ import pathlib
 
 import numpy
 
-from .. import PairedHDU, PositionSwitchedCalibration, SDFits, Spectrum, ZenithOpacity
+from .. import SigRefPairedHDU, PositionSwitchedCalibration, SDFits, Spectrum, ZenithOpacity
 
 
 def name() -> str:
@@ -50,12 +50,12 @@ def main(args: argparse.Namespace):
     inverse_variance = numpy.zeros(nchannel)
 
     for paired_row in itertools.chain.from_iterable(paired_rows):
-        paired_hdu = PairedHDU.from_paired_row(sdfits, paired_row)
-        if paired_hdu.should_be_discarded():
+        sigrefpair = paired_row.get_paired_hdu(sdfits)
+        if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
             continue
 
         spectrum = PositionSwitchedCalibration.get_calibrated_spectrum(
-            paired_hdu, freq_kwargs=dict(unit="Hz")
+            sigrefpair, freq_kwargs=dict(unit="Hz")
         )
         if spectrum is None:
             continue
@@ -87,7 +87,7 @@ def main(args: argparse.Namespace):
         if zenith_opacity is not None:
             correction_factor = (
                 PositionSwitchedCalibration.get_temperature_correction_factor(
-                    paired_hdu, zenith_opacity
+                    sigrefpair["sig"], zenith_opacity
                 )
             )
             if correction_factor is None:
@@ -115,11 +115,18 @@ def main(args: argparse.Namespace):
             right=0,
         )
 
-        weighted_intensity[lidx:ridx] += interpolated_noise**-2 * interpolated_intensity
+        weighted_intensity[lidx:ridx] += (
+            interpolated_noise**-2 * interpolated_intensity
+        )
         inverse_variance[lidx:ridx] += interpolated_noise**-2
 
     output_directory: pathlib.Path = (
         pathlib.Path.cwd() if args.output_directory is None else args.output_directory
     )
     output_path = output_directory / sdfits.path.name
-    numpy.savez_compressed(output_path, frequency=frequency, weighted_intensity=weighted_intensity, inverse_variance=inverse_variance)
+    numpy.savez_compressed(
+        output_path,
+        frequency=frequency,
+        weighted_intensity=weighted_intensity,
+        inverse_variance=inverse_variance,
+    )
