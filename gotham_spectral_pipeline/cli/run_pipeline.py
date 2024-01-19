@@ -4,7 +4,7 @@ import pathlib
 
 import numpy
 
-from .. import SigRefPairedHDU, PositionSwitchedCalibration, SDFits, Spectrum, ZenithOpacity
+from .. import PositionSwitchedCalibration, SDFits, Spectrum, ZenithOpacity
 
 
 def name() -> str:

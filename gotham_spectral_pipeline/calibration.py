@@ -3,7 +3,6 @@ from .spectrum import Spectrum
 from .utils import datetime_parser
 from .zenith_opacity import ZenithOpacity
 
-import datetime
 import functools
 import typing
 

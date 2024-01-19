@@ -8,7 +8,7 @@ import typing
 import loguru
 import numpy
 import numpy.typing
-import scipy.interpolate
+import scipy.interpolate  # type: ignore
 
 __all__ = ["ZenithOpacity"]
 
