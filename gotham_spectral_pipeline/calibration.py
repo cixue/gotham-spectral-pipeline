@@ -122,10 +122,7 @@ class Calibration:
         return None
 
     @classmethod
-    def get_calibration_temperature(
-        cls,
-        calonoffpair: CalOnOffPairedHDU,
-    ) -> float:
+    def get_calibration_temperature(cls, calonoffpair: CalOnOffPairedHDU) -> float:
         Tcal = calonoffpair.get_property(
             getter=lambda hdu: hdu.header["TCAL"],
             property_name="TCAL",
@@ -215,9 +212,7 @@ class Calibration:
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = cls.get_observed_frequency(
-            calonoffpair, loc="center", unit="Hz"
-        )
+        frequency = cls.get_observed_frequency(calonoffpair, loc="center", unit="Hz")
         if frequency is None:
             return None
 
@@ -328,9 +323,7 @@ class PositionSwitchedCalibration(Calibration):
 
     @classmethod
     def get_calibrated_spectrum(
-        cls,
-        sigrefpair: SigRefPairedHDU,
-        freq_kwargs: dict = dict(),
+        cls, sigrefpair: SigRefPairedHDU, freq_kwargs: dict = dict()
     ) -> Spectrum | None:
         if cls.should_be_discarded(sigrefpair):
             return None
