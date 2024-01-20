@@ -73,8 +73,9 @@ class SigRefPairedRow(dict[SigRefName, CalOnOffPairedRow]):
 
 class Calibration:
 
-    @staticmethod
+    @classmethod
     def get_observed_frequency(
+        cls,
         hdu: astropy.io.fits.PrimaryHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
@@ -93,14 +94,15 @@ class Calibration:
         loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
         return None
 
-    @staticmethod
+    @classmethod
     def get_corrected_frequency(
+        cls,
         hdu: astropy.io.fits.PrimaryHDU,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
         method: typing.Literal["default", "four_chunks"] = "default",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_observed_frequency(hdu, loc=loc, unit=unit)
+        frequency = cls.get_observed_frequency(hdu, loc=loc, unit=unit)
         if frequency is None:
             return None
 
@@ -119,8 +121,9 @@ class Calibration:
         loguru.logger.error("Invalid method. Supported are ['default', 'four_chunks']")
         return None
 
-    @staticmethod
+    @classmethod
     def get_calibration_temperature(
+        cls,
         calonoffpair: CalOnOffPairedHDU,
     ) -> float:
         Tcal = calonoffpair.get_property(
@@ -130,14 +133,15 @@ class Calibration:
         return Tcal
 
     @functools.lru_cache(maxsize=4)
-    @staticmethod
+    @classmethod
     def get_system_temperature(
+        cls,
         calonoffpair: CalOnOffPairedHDU,
         Tcal: float | None = None,
         trim_fraction: float = 0.1,
     ) -> float:
         if Tcal is None:
-            Tcal = Calibration.get_calibration_temperature(calonoffpair)
+            Tcal = cls.get_calibration_temperature(calonoffpair)
 
         caloff = calonoffpair["caloff"].data.squeeze()
         calon = calonoffpair["calon"].data.squeeze()
@@ -155,8 +159,9 @@ class Calibration:
         )
         return Tsys
 
-    @staticmethod
+    @classmethod
     def get_total_power_spectrum(
+        cls,
         calonoffpair: CalOnOffPairedHDU,
         Tcal: float | None = None,
         Tsys: float | None = None,
@@ -164,7 +169,7 @@ class Calibration:
         freq_kwargs: dict = dict(),
     ) -> Spectrum | None:
         frequency = calonoffpair.get_property(
-            lambda hdu: Calibration.get_corrected_frequency(hdu, **freq_kwargs),
+            lambda hdu: cls.get_corrected_frequency(hdu, **freq_kwargs),
             transformer=lambda ndarray: ndarray.tobytes(),
             property_name="Frequency grid",
         )
@@ -172,10 +177,10 @@ class Calibration:
             return None
 
         if Tcal is None:
-            Tcal = Calibration.get_calibration_temperature(calonoffpair)
+            Tcal = cls.get_calibration_temperature(calonoffpair)
 
         if Tsys is None:
-            Tsys = Calibration.get_system_temperature(calonoffpair, Tcal=Tcal)
+            Tsys = cls.get_system_temperature(calonoffpair, Tcal=Tcal)
 
         sig = 0.5 * (
             calonoffpair["calon"].data.squeeze() + calonoffpair["caloff"].data.squeeze()
@@ -203,13 +208,14 @@ class Calibration:
 
         return Spectrum(frequency=frequency, intensity=intensity, noise=noise)
 
-    @staticmethod
+    @classmethod
     def get_temperature_correction_factor(
+        cls,
         calonoffpair: CalOnOffPairedHDU,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = Calibration.get_observed_frequency(
+        frequency = cls.get_observed_frequency(
             calonoffpair, loc="center", unit="Hz"
         )
         if frequency is None:
@@ -225,9 +231,9 @@ class Calibration:
 
 class PositionSwitchedCalibration(Calibration):
 
-    @staticmethod
+    @classmethod
     def pair_up_rows(
-        rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
+        cls, rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
     ) -> list[list[SigRefPairedRow]]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
@@ -276,8 +282,8 @@ class PositionSwitchedCalibration(Calibration):
             )
         return paired_up_rows
 
-    @staticmethod
-    def should_be_discarded(sigrefpair: SigRefPairedHDU, threshold=0.10) -> bool:
+    @classmethod
+    def should_be_discarded(cls, sigrefpair: SigRefPairedHDU, threshold=0.10) -> bool:
         if any(
             hdu.header["EXPOSURE"] == 0.0
             for calonoffpair in sigrefpair.values()
@@ -320,20 +326,21 @@ class PositionSwitchedCalibration(Calibration):
 
         return False
 
-    @staticmethod
+    @classmethod
     def get_calibrated_spectrum(
+        cls,
         sigrefpair: SigRefPairedHDU,
         freq_kwargs: dict = dict(),
     ) -> Spectrum | None:
-        if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
+        if cls.should_be_discarded(sigrefpair):
             return None
 
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
-        Tcal = Calibration.get_calibration_temperature(ref_calonoffpair)
-        Tsys = Calibration.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
+        Tcal = cls.get_calibration_temperature(ref_calonoffpair)
+        Tsys = cls.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
 
-        ref_total_power = Calibration.get_total_power_spectrum(
+        ref_total_power = cls.get_total_power_spectrum(
             ref_calonoffpair,
             Tcal=Tcal,
             Tsys=Tsys,
@@ -343,7 +350,7 @@ class PositionSwitchedCalibration(Calibration):
         if ref_total_power is None:
             return None
 
-        sig_total_power = Calibration.get_total_power_spectrum(
+        sig_total_power = cls.get_total_power_spectrum(
             sig_calonoffpair,
             Tcal=Tcal,
             Tsys=Tsys,
@@ -358,9 +365,9 @@ class PositionSwitchedCalibration(Calibration):
 
 class PointingCalibration(Calibration):
 
-    @staticmethod
+    @classmethod
     def pair_up_rows(
-        rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
+        cls, rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
     ) -> list[list[SigRefPairedRow]]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
