@@ -325,6 +325,9 @@ class PositionSwitchedCalibration(Calibration):
         sigrefpair: SigRefPairedHDU,
         freq_kwargs: dict = dict(),
     ) -> Spectrum | None:
+        if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
+            return None
+
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
         Tcal = Calibration.get_calibration_temperature(ref_calonoffpair)
