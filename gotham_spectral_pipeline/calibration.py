@@ -15,10 +15,10 @@ import numpy.typing
 import pandas
 
 __all__ = [
-    "CalOnOffPairedHDU",
-    "CalOnOffPairedRow",
-    "SigRefPairedHDU",
-    "SigRefPairedRow",
+    "CalOnOffPairedHDUList",
+    "CalOnOffPairedRows",
+    "SigRefPairedHDUList",
+    "SigRefPairedRows",
     "Calibration",
     "PositionSwitchedCalibration",
     "PointingCalibration",
@@ -28,7 +28,7 @@ CalOnOffName = typing.Literal["calon", "caloff"]
 SigRefName = typing.Literal["sig", "ref"]
 
 
-class CalOnOffPairedHDU(dict[CalOnOffName, astropy.io.fits.PrimaryHDU]):
+class CalOnOffPairedHDUList(dict[CalOnOffName, list[astropy.io.fits.PrimaryHDU]]):
     T1 = typing.TypeVar("T1")
     T2 = typing.TypeVar("T2")
 
@@ -37,7 +37,7 @@ class CalOnOffPairedHDU(dict[CalOnOffName, astropy.io.fits.PrimaryHDU]):
 
     def get_property(
         self,
-        getter: typing.Callable[[astropy.io.fits.PrimaryHDU], T1],
+        getter: typing.Callable[[list[astropy.io.fits.PrimaryHDU]], T1],
         transformer: (
             typing.Callable[[T1], T1] | typing.Callable[[T1], T2]
         ) = lambda x: x,
@@ -48,100 +48,91 @@ class CalOnOffPairedHDU(dict[CalOnOffName, astropy.io.fits.PrimaryHDU]):
         default_scan: typing.Final = "caloff"
         if len(transformed) > 1:
             loguru.logger.warning(
-                f"{property_name} of each HDU are not identical. Using the one of {default_scan}."
+                f"{property_name} of each HDUList are not identical. Using the one of {default_scan}."
             )
         return properties[default_scan]
 
 
-class CalOnOffPairedRow(dict[CalOnOffName, pandas.Series]):
+class CalOnOffPairedRows(dict[CalOnOffName, pandas.DataFrame]):
 
-    def get_paired_hdu(self, sdfits: SDFits) -> CalOnOffPairedHDU:
-        return CalOnOffPairedHDU(
-            {k: sdfits.get_hdu_from_row(v) for k, v in self.items()}
+    def get_paired_hdu(self, sdfits: SDFits) -> CalOnOffPairedHDUList:
+        return CalOnOffPairedHDUList(
+            {k: sdfits.get_hdulist_from_rows(v) for k, v in self.items()}
         )
 
 
-class SigRefPairedHDU(dict[SigRefName, CalOnOffPairedHDU]):
+class SigRefPairedHDUList(dict[SigRefName, CalOnOffPairedHDUList]):
     pass
 
 
-class SigRefPairedRow(dict[SigRefName, CalOnOffPairedRow]):
+class SigRefPairedRows(dict[SigRefName, CalOnOffPairedRows]):
 
-    def get_paired_hdu(self, sdfits: SDFits) -> SigRefPairedHDU:
-        return SigRefPairedHDU({k: v.get_paired_hdu(sdfits) for k, v, in self.items()})
+    def get_paired_hdu(self, sdfits: SDFits) -> SigRefPairedHDUList:
+        return SigRefPairedHDUList(
+            {k: v.get_paired_hdu(sdfits) for k, v, in self.items()}
+        )
 
 
 class Calibration:
 
     @classmethod
+    def get_observed_datetime(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> str:
+        raise NotImplementedError()
+
+    @classmethod
+    def get_observed_elevation(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> float:
+        raise NotImplementedError()
+
+    @classmethod
     def get_observed_frequency(
         cls,
-        hdu: astropy.io.fits.PrimaryHDU,
+        hdulist: list[astropy.io.fits.PrimaryHDU],
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        wcs = astropy.wcs.WCS(hdu).spectral
-        if wcs.naxis != 1:
-            loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
-            return None
-
-        if loc == "center":
-            return wcs.pixel_to_world(numpy.arange(wcs.pixel_shape[0])).to_value(unit)
-        if loc == "edge":
-            return wcs.pixel_to_world(
-                numpy.arange(wcs.pixel_shape[0] + 1) - 0.5
-            ).to_value(unit)
-        loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
-        return None
+        raise NotImplementedError()
 
     @classmethod
     def get_corrected_frequency(
         cls,
-        hdu: astropy.io.fits.PrimaryHDU,
+        hdulist: list[astropy.io.fits.PrimaryHDU],
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
-        method: typing.Literal["default", "four_chunks"] = "default",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = cls.get_observed_frequency(hdu, loc=loc, unit=unit)
-        if frequency is None:
-            return None
-
-        vframe = hdu.header["VFRAME"]
-        beta = vframe / astropy.constants.c.to_value("m/s")
-        if method == "default":
-            doppler = numpy.sqrt((1 + beta) / (1 - beta))
-            corrected_frequency = frequency * doppler
-            return corrected_frequency
-        if method == "four_chunks":
-            corrected_frequency = frequency.copy()
-            for chunk in numpy.array_split(corrected_frequency, 4):
-                central_frequency = 0.5 * (chunk[0] + chunk[-1])
-                chunk += central_frequency * beta
-            return corrected_frequency
-        loguru.logger.error("Invalid method. Supported are ['default', 'four_chunks']")
-        return None
+        raise NotImplementedError()
 
     @classmethod
-    def get_calibration_temperature(cls, calonoffpair: CalOnOffPairedHDU) -> float:
-        Tcal = calonoffpair.get_property(
-            getter=lambda hdu: hdu.header["TCAL"],
-            property_name="TCAL",
-        )
-        return Tcal
+    def get_intensity_raw_count(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+    ) -> numpy.typing.NDArray[numpy.floating]:
+        raise NotImplementedError()
 
-    @functools.lru_cache(maxsize=4)
+    @classmethod
+    def get_noise(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU], Tsys: float
+    ) -> numpy.typing.NDArray[numpy.floating]:
+        raise NotImplementedError()
+
+    @classmethod
+    def get_calibration_temperature(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+    ) -> float:
+        raise NotImplementedError()
+
     @classmethod
     def get_system_temperature(
         cls,
-        calonoffpair: CalOnOffPairedHDU,
+        calonoffpair: CalOnOffPairedHDUList,
         Tcal: float | None = None,
-        trim_fraction: float = 0.1,
+        trim_fraction: float = 0.0,
     ) -> float:
         if Tcal is None:
-            Tcal = cls.get_calibration_temperature(calonoffpair)
+            Tcal = calonoffpair.get_property(
+                getter=cls.get_calibration_temperature, property_name="Tcal"
+            )
 
-        caloff = calonoffpair["caloff"].data.squeeze()
-        calon = calonoffpair["calon"].data.squeeze()
+        caloff = cls.get_intensity_raw_count(calonoffpair["caloff"])
+        calon = cls.get_intensity_raw_count(calonoffpair["calon"])
 
         trim_length = int(caloff.size * trim_fraction)
         if trim_length != 0:
@@ -159,68 +150,64 @@ class Calibration:
     @classmethod
     def get_total_power_spectrum(
         cls,
-        calonoffpair: CalOnOffPairedHDU,
+        calonoffpair: CalOnOffPairedHDUList,
         Tcal: float | None = None,
         Tsys: float | None = None,
-        ref_calonoffpair: CalOnOffPairedHDU | None = None,
+        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
         freq_kwargs: dict = dict(),
     ) -> Spectrum | None:
         frequency = calonoffpair.get_property(
-            lambda hdu: cls.get_corrected_frequency(hdu, **freq_kwargs),
+            lambda hdulist: cls.get_corrected_frequency(hdulist, **freq_kwargs),
             transformer=lambda ndarray: ndarray.tobytes(),
-            property_name="Frequency grid",
+            property_name="Corrected frequency grid",
         )
         if frequency is None:
             return None
 
         if Tcal is None:
-            Tcal = cls.get_calibration_temperature(calonoffpair)
+            Tcal = calonoffpair.get_property(
+                getter=cls.get_calibration_temperature, property_name="Tcal"
+            )
 
         if Tsys is None:
-            Tsys = cls.get_system_temperature(calonoffpair, Tcal=Tcal)
+            Tsys = cls.get_system_temperature(
+                calonoffpair, Tcal=Tcal, trim_fraction=0.1
+            )
 
         sig = 0.5 * (
-            calonoffpair["calon"].data.squeeze() + calonoffpair["caloff"].data.squeeze()
+            cls.get_intensity_raw_count(calonoffpair["calon"])
+            + cls.get_intensity_raw_count(calonoffpair["caloff"])
         )
         if ref_calonoffpair is None:
             ref = sig
         else:
             ref = 0.5 * (
-                ref_calonoffpair["calon"].data.squeeze()
-                + ref_calonoffpair["caloff"].data.squeeze()
+                cls.get_intensity_raw_count(ref_calonoffpair["calon"])
+                + cls.get_intensity_raw_count(ref_calonoffpair["caloff"])
             )
         intensity = Tsys * sig / ref - 0.5 * Tcal
 
-        frequency_resolution = calonoffpair.get_property(
-            lambda hdu: hdu.header["FREQRES"],
-            property_name="FREQRES",
-        )
-        exposure = (
-            calonoffpair["calon"].header["EXPOSURE"]
-            + calonoffpair["caloff"].header["EXPOSURE"]
-        )
-        noise = numpy.full_like(
-            frequency, Tsys / numpy.sqrt(frequency_resolution * exposure)
-        )
+        noise_caloff = cls.get_noise(calonoffpair["caloff"], Tsys)
+        noise_calon = cls.get_noise(calonoffpair["calon"], Tsys)
+        noise = 0.5 * numpy.sqrt(numpy.square(noise_caloff) + numpy.square(noise_calon))
 
         return Spectrum(frequency=frequency, intensity=intensity, noise=noise)
 
     @classmethod
     def get_temperature_correction_factor(
         cls,
-        calonoffpair: CalOnOffPairedHDU,
+        hdulist: list[astropy.io.fits.PrimaryHDU],
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
+        freq_kwargs: dict = dict(),
     ) -> numpy.typing.NDArray[numpy.floating] | None:
-        frequency = cls.get_observed_frequency(calonoffpair, loc="center", unit="Hz")
+        frequency = cls.get_observed_frequency(hdulist)
         if frequency is None:
             return None
 
-        timestamp = datetime_parser(
-            calonoffpair["caloff"].header["DATE-OBS"]
-        ).timestamp()
+        timestamp = datetime_parser(cls.get_observed_datetime(hdulist)).timestamp()
         tau = zenith_opacity.get_opacity(timestamp, frequency)
-        elevation = calonoffpair["caloff"].header["ELEVATIO"]
+        elevation = cls.get_observed_elevation(hdulist)
         return numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
 
 
@@ -229,7 +216,7 @@ class PositionSwitchedCalibration(Calibration):
     @classmethod
     def pair_up_rows(
         cls, rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
-    ) -> list[list[SigRefPairedRow]]:
+    ) -> list[SigRefPairedRows]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
 
@@ -243,7 +230,7 @@ class PositionSwitchedCalibration(Calibration):
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
         groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
-        paired_up_rows: list[list[SigRefPairedRow]] = list()
+        paired_up_rows: list[SigRefPairedRows] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
             ref_calon = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'T'")
@@ -256,11 +243,17 @@ class PositionSwitchedCalibration(Calibration):
                     f"Numbers of rows in each scan do not match for {group = }. {len(ref_caloff) = }, {len(ref_calon) = }, {len(sig_caloff) = }, {len(sig_calon) = }."
                 )
                 continue
-            paired_up_rows.append(
+            paired_up_rows.extend(
                 [
-                    SigRefPairedRow(
-                        ref=CalOnOffPairedRow(caloff=ref_caloff_, calon=ref_calon_),
-                        sig=CalOnOffPairedRow(caloff=sig_caloff_, calon=sig_calon_),
+                    SigRefPairedRows(
+                        ref=CalOnOffPairedRows(
+                            caloff=pandas.DataFrame([ref_caloff_]),
+                            calon=pandas.DataFrame([ref_calon_]),
+                        ),
+                        sig=CalOnOffPairedRows(
+                            caloff=pandas.DataFrame([sig_caloff_]),
+                            calon=pandas.DataFrame([sig_calon_]),
+                        ),
                     )
                     for (
                         (_, ref_caloff_),
@@ -278,25 +271,108 @@ class PositionSwitchedCalibration(Calibration):
         return paired_up_rows
 
     @classmethod
-    def should_be_discarded(cls, sigrefpair: SigRefPairedHDU, threshold=0.10) -> bool:
+    def get_observed_datetime(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> str:
+        return hdulist[0].header["DATE-OBS"]
+
+    @classmethod
+    def get_observed_elevation(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> float:
+        return hdulist[0].header["ELEVATIO"]
+
+    @classmethod
+    def get_observed_frequency(
+        cls,
+        hdulist: list[astropy.io.fits.PrimaryHDU],
+        loc: typing.Literal["center", "edge"] = "center",
+        unit: str = "Hz",
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        wcs = astropy.wcs.WCS(hdulist[0]).spectral
+        if wcs.naxis != 1:
+            loguru.logger.error(f"Expecting one spectral axis. Found {wcs.naxis}.")
+            return None
+
+        if loc == "center":
+            return wcs.pixel_to_world(numpy.arange(wcs.pixel_shape[0])).to_value(unit)
+        if loc == "edge":
+            return wcs.pixel_to_world(
+                numpy.arange(wcs.pixel_shape[0] + 1) - 0.5
+            ).to_value(unit)
+        loguru.logger.error("Invalid location. Supported are ['center', 'edge']")
+        return None
+
+    @classmethod
+    def get_corrected_frequency(
+        cls,
+        hdulist: list[astropy.io.fits.PrimaryHDU],
+        loc: typing.Literal["center", "edge"] = "center",
+        unit: str = "Hz",
+        method: typing.Literal["default", "four_chunks"] = "default",
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
+        frequency = cls.get_observed_frequency(hdulist, loc=loc, unit=unit)
+        if frequency is None:
+            return None
+
+        vframe = hdulist[0].header["VFRAME"]
+        beta = vframe / astropy.constants.c.to_value("m/s")
+        if method == "default":
+            doppler = numpy.sqrt((1 + beta) / (1 - beta))
+            corrected_frequency = frequency * doppler
+            return corrected_frequency
+        if method == "four_chunks":
+            corrected_frequency = frequency.copy()
+            for chunk in numpy.array_split(corrected_frequency, 4):
+                central_frequency = 0.5 * (chunk[0] + chunk[-1])
+                chunk += central_frequency * beta
+            return corrected_frequency
+        loguru.logger.error("Invalid method. Supported are ['default', 'four_chunks']")
+        return None
+
+    @classmethod
+    def get_intensity_raw_count(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+    ) -> numpy.typing.NDArray[numpy.floating]:
+        return hdulist[0].data.squeeze()
+
+    @classmethod
+    def get_noise(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU], Tsys: float
+    ) -> numpy.typing.NDArray[numpy.floating]:
+        frequency_resolution = hdulist[0].header["FREQRES"]
+        exposure = hdulist[0].header["EXPOSURE"]
+        return numpy.full_like(
+            hdulist[0].data.squeeze(),
+            Tsys / numpy.sqrt(frequency_resolution * exposure),
+        )
+
+    @classmethod
+    def get_calibration_temperature(
+        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+    ) -> float:
+        return hdulist[0].header["TCAL"]
+
+    @classmethod
+    def should_be_discarded(
+        cls, sigrefpair: SigRefPairedHDUList, threshold=0.10
+    ) -> bool:
         if any(
-            hdu.header["EXPOSURE"] == 0.0
+            hdulist[0].header["EXPOSURE"] == 0.0
             for calonoffpair in sigrefpair.values()
-            for hdu in calonoffpair.values()
+            for hdulist in calonoffpair.values()
         ):
             return True
 
         if numpy.all(
-            sigrefpair["ref"]["caloff"].data == sigrefpair["sig"]["caloff"].data
+            cls.get_intensity_raw_count(sigrefpair["ref"]["caloff"])
+            == cls.get_intensity_raw_count(sigrefpair["sig"]["caloff"])
         ) and numpy.all(
-            sigrefpair["ref"]["calon"].data == sigrefpair["sig"]["calon"].data
+            cls.get_intensity_raw_count(sigrefpair["ref"]["calon"])
+            == cls.get_intensity_raw_count(sigrefpair["sig"]["calon"])
         ):
             return True
 
         averages = {
             sigref: {
-                calonoff: numpy.nanmean(hdu.data)
-                for calonoff, hdu in calonoffpair.items()
+                calonoff: numpy.nanmean(cls.get_intensity_raw_count(hdulist))
+                for calonoff, hdulist in calonoffpair.items()
             }
             for sigref, calonoffpair in sigrefpair.items()
         }
@@ -323,14 +399,14 @@ class PositionSwitchedCalibration(Calibration):
 
     @classmethod
     def get_calibrated_spectrum(
-        cls, sigrefpair: SigRefPairedHDU, freq_kwargs: dict = dict()
+        cls, sigrefpair: SigRefPairedHDUList, freq_kwargs: dict = dict()
     ) -> Spectrum | None:
         if cls.should_be_discarded(sigrefpair):
             return None
 
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
-        Tcal = cls.get_calibration_temperature(ref_calonoffpair)
+        Tcal = ref_calonoffpair.get_property(cls.get_calibration_temperature, property_name='Tcal')
         Tsys = cls.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
 
         ref_total_power = cls.get_total_power_spectrum(
@@ -361,7 +437,7 @@ class PointingCalibration(Calibration):
     @classmethod
     def pair_up_rows(
         cls, rows: pandas.DataFrame, **kwargs: dict[str, typing.Any]
-    ) -> list[list[SigRefPairedRow]]:
+    ) -> list[SigRefPairedRows]:
         query = [f"{key.upper()} == {val!r}" for key, val in kwargs.items()]
         rows = rows.query(" and ".join(query)) if query else rows
 
@@ -373,7 +449,7 @@ class PointingCalibration(Calibration):
 
         rows = pointing_rows
         groups = rows.groupby(["OBJECT", "SCAN", "PLNUM"])
-        paired_up_rows: list[list[SigRefPairedRow]] = list()
+        paired_up_rows: list[SigRefPairedRows] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("FDNUM == 1 and CAL == 'F'")
             ref_calon = rows_in_group.query("FDNUM == 1 and CAL == 'T'")
@@ -387,22 +463,9 @@ class PointingCalibration(Calibration):
                 )
                 continue
             paired_up_rows.append(
-                [
-                    SigRefPairedRow(
-                        ref=CalOnOffPairedRow(caloff=ref_caloff_, calon=ref_calon_),
-                        sig=CalOnOffPairedRow(caloff=sig_caloff_, calon=sig_calon_),
-                    )
-                    for (
-                        (_, ref_caloff_),
-                        (_, ref_calon_),
-                        (_, sig_caloff_),
-                        (_, sig_calon_),
-                    ) in zip(
-                        ref_caloff.iterrows(),
-                        ref_calon.iterrows(),
-                        sig_caloff.iterrows(),
-                        sig_calon.iterrows(),
-                    )
-                ]
+                SigRefPairedRows(
+                    ref=CalOnOffPairedRows(caloff=ref_caloff, calon=ref_calon),
+                    sig=CalOnOffPairedRows(caloff=sig_caloff, calon=sig_calon),
+                )
             )
         return paired_up_rows

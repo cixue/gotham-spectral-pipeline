@@ -1,5 +1,4 @@
 import argparse
-import itertools
 import pathlib
 
 import numpy
@@ -49,7 +48,7 @@ def main(args: argparse.Namespace):
     weighted_intensity = numpy.zeros(nchannel)
     inverse_variance = numpy.zeros(nchannel)
 
-    for paired_row in itertools.chain.from_iterable(paired_rows):
+    for paired_row in paired_rows:
         sigrefpair = paired_row.get_paired_hdu(sdfits)
         if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
             continue
@@ -87,7 +86,7 @@ def main(args: argparse.Namespace):
         if zenith_opacity is not None:
             correction_factor = (
                 PositionSwitchedCalibration.get_temperature_correction_factor(
-                    sigrefpair["sig"], zenith_opacity
+                    sigrefpair["sig"]["caloff"], zenith_opacity
                 )
             )
             if correction_factor is None:
