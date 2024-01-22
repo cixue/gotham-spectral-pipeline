@@ -286,49 +286,52 @@ def _compute_residual(
 
 
 class Spectrum:
-    frequency: numpy.typing.NDArray[numpy.floating]
+    frequency: numpy.typing.NDArray[numpy.floating] | None
     intensity: numpy.typing.NDArray[numpy.floating]
     noise: numpy.typing.NDArray[numpy.floating] | None
     flag: numpy.typing.NDArray[numpy.integer] | None
 
     class FlagReason(enum.Enum):
         NOT_FLAGGED = 0
-        CHUNK_EDGES = 1
-        RFI = 2
+        CHUNK_EDGES = 1 << 0
+        RFI = 1 << 1
 
     def __init__(
         self,
-        frequency: numpy.typing.ArrayLike,
+        *,
         intensity: numpy.typing.ArrayLike,
-        noise: numpy.typing.ArrayLike | None,
-        no_flag: bool = False,
+        frequency: numpy.typing.ArrayLike | None = None,
+        noise: numpy.typing.ArrayLike | None = None,
+        flag: numpy.typing.ArrayLike | None = None,
     ):
-        self.frequency = numpy.array(frequency).astype(numpy.float64)
-        self.intensity = numpy.array(intensity).astype(numpy.float64)
-        if not (self.frequency.shape == self.intensity.shape):
-            loguru.logger.error("Frequency and intensity do not have the same shape.")
-            self.frequency = self.intensity = numpy.empty(0)
-            return
+        self.intensity = numpy.array(intensity, dtype=numpy.float64)
+
+        if frequency is None:
+            self.frequency = None
+        else:
+            self.frequency = numpy.array(frequency, dtype=numpy.float64)
 
         if noise is None:
             self.noise = None
         else:
-            self.noise = numpy.array(noise).astype(numpy.float64)
-            if not (self.frequency.shape == self.noise.shape):
-                loguru.logger.error(
-                    "Frequency, intensity and noise do not have the same shape."
-                )
-                self.frequency = self.intensity = self.noise = numpy.empty(0)
-                return
+            self.noise = numpy.array(noise, dtype=numpy.float64)
 
-        if no_flag:
+        if flag is None:
             self.flag = None
         else:
-            self.flag = numpy.full_like(
-                self.frequency, Spectrum.FlagReason.NOT_FLAGGED.value
-            )
+            self.flag = numpy.array(flag, dtype=numpy.int32)
 
-        self._sort_by_frequency()
+        shapes = {
+            ndarray.shape
+            for ndarray in [self.frequency, self.intensity, self.noise, self.flag]
+            if ndarray is not None
+        }
+        if len(shapes) != 1:
+            loguru.logger.error("Shapes of input arrays are not identical.")
+            return
+
+        if self.frequency is not None:
+            self._sort_by_frequency()
 
     def _sort_by_frequency(self):
         is_sorted = lambda a: numpy.all(a[1:] >= a[:-1])
@@ -337,8 +340,8 @@ class Spectrum:
             return
 
         if is_sorted(self.frequency[::-1]):
-            self.frequency = self.frequency[::-1]
             self.intensity = self.intensity[::-1]
+            self.frequency = self.frequency[::-1]
             if self.noise is not None:
                 self.noise = self.noise[::-1]
             if self.flag is not None:
@@ -346,8 +349,8 @@ class Spectrum:
             return
 
         sorted_idx = numpy.argsort(self.frequency)
-        self.frequency = self.frequency[sorted_idx]
         self.intensity = self.intensity[sorted_idx]
+        self.frequency = self.frequency[sorted_idx]
         if self.noise is not None:
             self.noise = self.noise[sorted_idx]
         if self.flag is not None:
@@ -355,69 +358,104 @@ class Spectrum:
 
     def __add__(self, other: "Spectrum") -> "Spectrum":
         if isinstance(other, Spectrum):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
             intensity = self.intensity + other.intensity
-            if self.noise is not None and other.noise is not None:
-                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+
+            if self.frequency is None or other.frequency is None:
+                frequency = None
             else:
+                # Assume both spectra have the same frequency and use the one of the left operand
+                frequency = self.frequency
+
+            if self.noise is None or other.noise is None:
                 noise = None
-            if self.flag is None and other.flag is None:
-                no_flag = True
             else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+
+            if self.flag is None or other.flag is None:
+                flag = None
+            else:
+                flag = self.flag | other.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         return NotImplemented
 
     def __sub__(self, other: "Spectrum") -> "Spectrum":
         if isinstance(other, Spectrum):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
             intensity = self.intensity - other.intensity
-            if self.noise is not None and other.noise is not None:
-                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+
+            if self.frequency is None or other.frequency is None:
+                frequency = None
             else:
+                # Assume both spectra have the same frequency and use the one of the left operand
+                frequency = self.frequency
+
+            if self.noise is None or other.noise is None:
                 noise = None
-            if self.flag is None and other.flag is None:
-                no_flag = True
             else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
+
+            if self.flag is None or other.flag is None:
+                flag = None
+            else:
+                flag = self.flag | other.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         return NotImplemented
 
     def __mul__(self, other: "int | float | Spectrum") -> "Spectrum":
         if isinstance(other, int) or isinstance(other, float):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
+            if self.frequency is None:
+                frequency = None
+            else:
+                frequency = self.frequency
+
             intensity = self.intensity * other
-            if self.noise is not None:
-                noise = self.noise * other
-            else:
+
+            if self.noise is None:
                 noise = None
-            if self.flag is None:
-                no_flag = True
             else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                noise = self.noise * other
+
+            if self.flag is None:
+                flag = None
+            else:
+                flag = self.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         if isinstance(other, Spectrum):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
+            if self.frequency is None or other.frequency is None:
+                frequency = None
+            else:
+                # Assume both spectra have the same frequency and use the one of the left operand
+                frequency = self.frequency
+
             intensity = self.intensity * other.intensity
-            if self.noise is not None and other.noise is not None:
+
+            if self.noise is None or other.noise is None:
+                noise = None
+            else:
                 noise = intensity * numpy.sqrt(
                     numpy.square(self.noise / self.intensity)
                     + numpy.square(other.noise / other.intensity)
                 )
+
+            if self.flag is None or other.flag is None:
+                flag = None
             else:
-                noise = None
-            if self.flag is None and other.flag is None:
-                no_flag = True
-            else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                flag = self.flag | other.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         return NotImplemented
 
@@ -426,52 +464,76 @@ class Spectrum:
 
     def __truediv__(self, other: "int | float | Spectrum") -> "Spectrum":
         if isinstance(other, int) or isinstance(other, float):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
+            if self.frequency is None:
+                frequency = None
+            else:
+                frequency = self.frequency
+
             intensity = self.intensity / other
+
             if self.noise is not None:
                 noise = self.noise / other
             else:
                 noise = None
+
             if self.flag is None:
-                no_flag = True
+                flag = None
             else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                flag = self.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         if isinstance(other, Spectrum):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
+            if self.frequency is None or other.frequency is None:
+                frequency = None
+            else:
+                # Assume both spectra have the same frequency and use the one of the left operand
+                frequency = self.frequency
+
             intensity = self.intensity / other.intensity
-            if self.noise is not None and other.noise is not None:
+
+            if self.noise is None or other.noise is None:
+                noise = None
+            else:
                 noise = intensity * numpy.sqrt(
                     numpy.square(self.noise / self.intensity)
                     + numpy.square(other.noise / other.intensity)
                 )
+
+            if self.flag is None or other.flag is None:
+                flag = None
             else:
-                noise = None
-            if self.flag is None and other.flag is None:
-                no_flag = True
-            else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                flag = self.flag | other.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         return NotImplemented
 
     def __rtruediv__(self, other: int | float) -> "Spectrum":
         if isinstance(other, int) or isinstance(other, float):
-            # Assume both spectra have the same frequency
-            frequency = self.frequency
+            if self.frequency is None:
+                frequency = None
+            else:
+                frequency = self.frequency
+
             intensity = other / self.intensity
-            if self.noise is not None:
-                noise = intensity * (self.noise / self.intensity)
-            else:
+            if self.noise is None:
                 noise = None
-            if self.flag is None:
-                no_flag = True
             else:
-                no_flag = False
-            return Spectrum(frequency, intensity, noise, no_flag)
+                noise = intensity * (self.noise / self.intensity)
+
+            if self.flag is None:
+                flag = None
+            else:
+                flag = self.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
 
         return NotImplemented
 
@@ -479,9 +541,9 @@ class Spectrum:
     def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
         if self.flag is None:
             loguru.logger.warning("This spectrum have no flags.")
-            return numpy.full_like(self.frequency, False)
+            return numpy.full_like(self.intensity, False)
 
-        return self.flag != Spectrum.FlagReason.NOT_FLAGGED.value
+        return self.flag == Spectrum.FlagReason.NOT_FLAGGED.value
 
     def detect_signal(
         self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
@@ -489,6 +551,11 @@ class Spectrum:
         if self.noise is None:
             loguru.logger.warning("This spectrum has no noise.")
             return None
+
+        if self.frequency is None:
+            frequency = numpy.arange(self.intensity.size, dtype=numpy.float64)
+        else:
+            frequency = self.frequency
 
         # Here, we want to calculate for each point the minimum chi-square that
         # (2n + 1) adjacent points centered on the given point lies on a
@@ -511,10 +578,10 @@ class Spectrum:
         #     + sum_x_s2 * (sum_xy_s2 * sum_y_s2 - sum_x_s2 * sum_y2_s2)
         #     + sum_y_s2 * (sum_xy_s2 * sum_x_s2 - sum_y_s2 * sum_x2_s2)
         # ) / (sum_one_s2 * sum_x2_s2 - sum_x_s2 * sum_x_s2)
-        size = self.frequency.size - 2 * nadjacent
+        size = frequency.size - 2 * nadjacent
         chi_squared = numpy.empty(size, dtype=float)
         for lb, ub in itertools.pairwise([*range(0, size, chunk_size), size]):
-            x = self.frequency[lb : ub + 2 * nadjacent]
+            x = frequency[lb : ub + 2 * nadjacent]
             y = self.intensity[lb : ub + 2 * nadjacent]
             s = self.noise[lb : ub + 2 * nadjacent]
             x = x - x.mean()
@@ -542,7 +609,7 @@ class Spectrum:
 
         is_signal = numpy.where(chi_squared > scipy.special.chdtri(width, alpha))[0]
 
-        res = numpy.zeros_like(self.frequency, dtype=bool)
+        res = numpy.zeros_like(self.intensity, dtype=bool)
         for i in range(width):
             res[i : size + i][is_signal] = True
         return res
@@ -557,7 +624,7 @@ class Spectrum:
         is_rfi = self.detect_signal(
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
-        self.flag[is_rfi] = Spectrum.FlagReason.RFI.value
+        self.flag[is_rfi] = self.flag[is_rfi] | Spectrum.FlagReason.RFI.value
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
@@ -565,18 +632,22 @@ class Spectrum:
         if self.flag is None:
             loguru.logger.warning("This spectrum have no flags.")
             return
+
         if nchannel is None:
             if fraction is None:
                 loguru.logger.error(
                     "Either but not both fraction or nchannel should be set."
                 )
                 return
-            nchannel = int(self.frequency.size * fraction)
+            nchannel = int(self.intensity.size * fraction)
 
         if nchannel > 0:
-            self.flag[:nchannel] = self.flag[
-                -nchannel:
-            ] = Spectrum.FlagReason.CHUNK_EDGES.value
+            self.flag[:nchannel] = (
+                self.flag[:nchannel] | Spectrum.FlagReason.CHUNK_EDGES.value
+            )
+            self.flag[-nchannel:] = (
+                self.flag[-nchannel:] | Spectrum.FlagReason.CHUNK_EDGES.value
+            )
 
     def fit_baseline(
         self,
@@ -588,7 +659,11 @@ class Spectrum:
         lomb_scargle_options: dict[str, typing.Any] = {},
     ) -> tuple[Baseline, BaselineSupplementaryInfo] | None:
         fitted = ~self.flagged if mask is None else ~(mask | self.flagged)
-        frequency = self.frequency[fitted]
+        frequency = (
+            numpy.arange(fitted.size)
+            if self.frequency is None
+            else self.frequency[fitted]
+        )
         intensity = self.intensity[fitted]
         noise = None if self.noise is None else self.noise[fitted]
 
@@ -675,4 +750,4 @@ class Spectrum:
             )
             / count
         )
-        return Spectrum(self.frequency, intensity, noise, no_flag=True)
+        return Spectrum(intensity=intensity, frequency=self.frequency, noise=noise)

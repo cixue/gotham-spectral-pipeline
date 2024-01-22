@@ -59,6 +59,8 @@ def main(args: argparse.Namespace):
         if spectrum is None:
             continue
 
+        assert spectrum.frequency is not None
+
         spectrum.flag_rfi()
         spectrum.flag_head_tail(nchannel=2048)
         is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
@@ -74,11 +76,13 @@ def main(args: argparse.Namespace):
 
         baseline, baseline_info = baseline_result
         baseline_subtracted_spectrum = Spectrum(
-            spectrum.frequency,
-            spectrum.intensity - baseline(spectrum.frequency),
-            spectrum.noise,
+            frequency=spectrum.frequency,
+            intensity=spectrum.intensity - baseline(spectrum.frequency),
+            noise=spectrum.noise,
+            flag=numpy.zeros_like(spectrum.intensity, dtype=int),
         )
 
+        assert baseline_subtracted_spectrum.frequency is not None
         assert baseline_subtracted_spectrum.noise is not None
 
         baseline_subtracted_spectrum.noise[spectrum.flagged] = numpy.inf

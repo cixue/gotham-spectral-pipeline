@@ -191,7 +191,11 @@ class Calibration:
         noise_calon = cls.get_noise(calonoffpair["calon"], Tsys)
         noise = 0.5 * numpy.sqrt(numpy.square(noise_caloff) + numpy.square(noise_calon))
 
-        return Spectrum(frequency=frequency, intensity=intensity, noise=noise)
+        flag = numpy.zeros_like(intensity, dtype=int)
+
+        return Spectrum(
+            intensity=intensity, frequency=frequency, noise=noise, flag=flag
+        )
 
     @classmethod
     def get_temperature_correction_factor(
@@ -406,7 +410,9 @@ class PositionSwitchedCalibration(Calibration):
 
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
-        Tcal = ref_calonoffpair.get_property(cls.get_calibration_temperature, property_name='Tcal')
+        Tcal = ref_calonoffpair.get_property(
+            cls.get_calibration_temperature, property_name="Tcal"
+        )
         Tsys = cls.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
 
         ref_total_power = cls.get_total_power_spectrum(
