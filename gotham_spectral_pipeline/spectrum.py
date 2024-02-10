@@ -751,3 +751,28 @@ class Spectrum:
             / count
         )
         return Spectrum(intensity=intensity, frequency=self.frequency, noise=noise)
+
+    def split(self, min_length: int = 2) -> "list[Spectrum]":
+        if self.flag is None:
+            loguru.logger.warning("This spectrum have no flags.")
+            return [self]
+
+        spectrum_chunks: list[Spectrum] = []
+        (split_positions,) = numpy.where(
+            numpy.diff(numpy.pad(self.flagged, 1, constant_values=True))
+        )
+        for start, stop in split_positions.reshape(-1, 2):
+            if stop - start < min_length:
+                continue
+            intensity = self.intensity[start:stop]
+            frequency = (
+                self.frequency[start:stop] if self.frequency is not None else None
+            )
+            noise = self.noise[start:stop] if self.noise is not None else None
+            flag = self.flag[start:stop] if self.flag is not None else None
+            spectrum_chunks.append(
+                Spectrum(
+                    intensity=intensity, frequency=frequency, noise=noise, flag=flag
+                )
+            )
+        return spectrum_chunks
