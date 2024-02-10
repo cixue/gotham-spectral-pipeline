@@ -543,7 +543,7 @@ class Spectrum:
             loguru.logger.warning("This spectrum have no flags.")
             return numpy.full_like(self.intensity, False)
 
-        return self.flag == Spectrum.FlagReason.NOT_FLAGGED.value
+        return self.flag != Spectrum.FlagReason.NOT_FLAGGED.value
 
     def detect_signal(
         self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
