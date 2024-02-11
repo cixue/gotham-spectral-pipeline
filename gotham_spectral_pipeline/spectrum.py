@@ -548,6 +548,11 @@ class Spectrum:
 
         return self.flag != Spectrum.FlagReason.NOT_FLAGGED.value
 
+    def _add_flag_array(self):
+        self.flag = numpy.full_like(
+            self.intensity, Spectrum.FlagReason.NOT_FLAGGED.value, dtype=numpy.int32
+        )
+
     def detect_signal(
         self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
@@ -621,20 +626,22 @@ class Spectrum:
         self, *, nadjacent: int = 3, alpha: float = 1e-6, chunk_size: int = 1024
     ):
         if self.flag is None:
-            loguru.logger.warning("This spectrum have no flags.")
-            return
+            self._add_flag_array()
+        assert self.flag is not None
 
         is_rfi = self.detect_signal(
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
-        self.flag[is_rfi] = self.flag[is_rfi] | Spectrum.FlagReason.RFI.value
+        if is_rfi is None:
+            return
+        self.flag[is_rfi] |= Spectrum.FlagReason.RFI.value  # type: ignore
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
     ):
         if self.flag is None:
-            loguru.logger.warning("This spectrum have no flags.")
-            return
+            self._add_flag_array()
+        assert self.flag is not None
 
         if nchannel is None:
             if fraction is None:
@@ -645,12 +652,20 @@ class Spectrum:
             nchannel = int(self.intensity.size * fraction)
 
         if nchannel > 0:
-            self.flag[:nchannel] = (
-                self.flag[:nchannel] | Spectrum.FlagReason.CHUNK_EDGES.value
-            )
-            self.flag[-nchannel:] = (
-                self.flag[-nchannel:] | Spectrum.FlagReason.CHUNK_EDGES.value
-            )
+            self.flag[:nchannel] |= Spectrum.FlagReason.CHUNK_EDGES.value  # type: ignore
+            self.flag[-nchannel:] |= Spectrum.FlagReason.CHUNK_EDGES.value  # type: ignore
+
+    def flag_nan(self):
+        if self.flag is None:
+            self._add_flag_array()
+        assert self.flag is not None
+
+        is_nan = numpy.isnan(self.intensity)
+        if self.frequency is not None:
+            is_nan |= numpy.isnan(self.frequency)
+        if self.noise is not None:
+            is_nan |= numpy.isnan(self.noise)
+        self.flag[is_nan] |= Spectrum.FlagReason.NAN.value
 
     def fit_baseline(
         self,
