@@ -2,6 +2,7 @@ import collections
 import enum
 import functools
 import itertools
+import pathlib
 import typing
 
 import astropy.timeseries  # type: ignore
@@ -296,6 +297,7 @@ class Spectrum:
         NOT_FLAGGED = 0
         CHUNK_EDGES = 1 << 0
         RFI = 1 << 1
+        NAN = 1 << 2
 
     def __init__(
         self,
@@ -777,6 +779,19 @@ class Spectrum:
                 )
             )
         return spectrum_chunks
+
+    def to_npz(self, path: pathlib.Path):
+        output = {}
+        for attribute in ["intensity", "frequency", "noise", "flag"]:
+            if getattr(self, attribute) is None:
+                continue
+            output[attribute] = getattr(self, attribute)
+        numpy.savez_compressed(path, **output)
+
+    @classmethod
+    def from_npz(self, path: pathlib.Path) -> "Spectrum":
+        output = numpy.load(path)
+        return Spectrum(**output)
 
 
 class SpectrumAggregator:

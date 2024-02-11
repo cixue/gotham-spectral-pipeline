@@ -3,7 +3,7 @@ import pathlib
 
 import numpy
 
-from .. import PositionSwitchedCalibration, SDFits, Spectrum, ZenithOpacity
+from .. import PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
 
 
 def name() -> str:
@@ -20,8 +20,6 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--sdfits", type=SDFits, required=True)
     parser.add_argument("--zenith_opacity", type=ZenithOpacity)
     parser.add_argument("--filter", type=str)
-    parser.add_argument("--start_frequency", type=float, required=True)
-    parser.add_argument("--stop_frequency", type=float, required=True)
     parser.add_argument("--channel_width", type=float, required=True)
     parser.add_argument("--output_directory", type=pathlib.Path)
 
@@ -39,15 +37,9 @@ def main(args: argparse.Namespace):
     if len(paired_rows) == 0:
         return
 
-    start_frequency: float = args.start_frequency
-    stop_frequency: float = args.stop_frequency
-    channel_width: float = args.channel_width
-    bandwidth = stop_frequency - start_frequency
-    nchannel = int(bandwidth // channel_width)
-    frequency = start_frequency + numpy.arange(nchannel) * channel_width
-    weighted_intensity = numpy.zeros(nchannel)
-    inverse_variance = numpy.zeros(nchannel)
-
+    spectrum_aggregator = SpectrumAggregator(
+        SpectrumAggregator.LinearTransformer(args.channel_width)
+    )
     for paired_row in paired_rows:
         sigrefpair = paired_row.get_paired_hdu(sdfits)
         if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
@@ -99,37 +91,10 @@ def main(args: argparse.Namespace):
             baseline_subtracted_spectrum.intensity *= correction_factor
             baseline_subtracted_spectrum.noise *= correction_factor
 
-        lidx, ridx = numpy.searchsorted(
-            frequency, baseline_subtracted_spectrum.frequency[[0, -1]]
-        )
-
-        interpolated_intensity = numpy.interp(
-            frequency[lidx:ridx],
-            baseline_subtracted_spectrum.frequency,
-            baseline_subtracted_spectrum.intensity,
-            left=0,
-            right=0,
-        )
-        interpolated_noise = numpy.interp(
-            frequency[lidx:ridx],
-            baseline_subtracted_spectrum.frequency,
-            baseline_subtracted_spectrum.noise,
-            left=0,
-            right=0,
-        )
-
-        weighted_intensity[lidx:ridx] += (
-            interpolated_noise**-2 * interpolated_intensity
-        )
-        inverse_variance[lidx:ridx] += interpolated_noise**-2
+        spectrum_aggregator.merge(baseline_subtracted_spectrum)
 
     output_directory: pathlib.Path = (
         pathlib.Path.cwd() if args.output_directory is None else args.output_directory
     )
     output_path = output_directory / sdfits.path.name
-    numpy.savez_compressed(
-        output_path,
-        frequency=frequency,
-        weighted_intensity=weighted_intensity,
-        inverse_variance=inverse_variance,
-    )
+    spectrum_aggregator.get_spectrum().to_npz(output_path)
