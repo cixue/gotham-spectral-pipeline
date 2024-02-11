@@ -11,8 +11,9 @@ import numpy
 import numpy.polynomial.polynomial as poly
 import numpy.typing
 import scipy.special  # type: ignore
+from sortedcontainers import SortedList  # type: ignore
 
-__all__ = ["Spectrum"]
+__all__ = ["Spectrum", "SpectrumAggregator"]
 
 Baseline = typing.Callable[
     [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
@@ -776,3 +777,223 @@ class Spectrum:
                 )
             )
         return spectrum_chunks
+
+
+class SpectrumAggregator:
+
+    class Transformer:
+
+        def forward(
+            self,
+            index: numpy.typing.NDArray[numpy.floating]
+            | numpy.typing.NDArray[numpy.integer],
+        ) -> numpy.typing.NDArray[numpy.floating]:
+            raise NotImplementedError
+
+        def backward(
+            self, value: numpy.typing.NDArray[numpy.floating]
+        ) -> numpy.typing.NDArray[numpy.floating]:
+            raise NotImplementedError
+
+    class LinearTransformer(Transformer):
+        step: float
+        zero_point: float
+
+        def __init__(self, step: float, zero_point: float = 0.0):
+            self.step = step
+            self.zero_point = zero_point
+
+        def forward(
+            self,
+            index: numpy.typing.NDArray[numpy.floating]
+            | numpy.typing.NDArray[numpy.integer],
+        ) -> numpy.typing.NDArray[numpy.floating]:
+            return index * self.step + self.zero_point
+
+        def backward(
+            self, value: numpy.typing.NDArray[numpy.floating]
+        ) -> numpy.typing.NDArray[numpy.floating]:
+            return (value - self.zero_point) / self.step
+
+    class SpectrumSlice(typing.NamedTuple):
+        start: int
+        stop: int
+        weighted_intensity: numpy.typing.NDArray[numpy.floating]
+        weighted_variance: numpy.typing.NDArray[numpy.floating] | None
+        weight: numpy.typing.NDArray[numpy.floating]
+
+        def __eq__(self, other) -> bool:
+            if isinstance(other, SpectrumAggregator.SpectrumSlice):
+                return self is other
+            return NotImplemented
+
+    transformer: Transformer
+    compute_noise: bool
+    noise_weighted: bool
+    spectrum_slices: SortedList
+
+    def __init__(
+        self,
+        transformer: Transformer,
+        compute_noise: bool = True,
+        noise_weighted: bool = True,
+    ):
+        self.transformer = transformer
+        self.compute_noise = compute_noise
+        self.noise_weighted = noise_weighted
+        self.spectrum_slices = SortedList(
+            key=lambda spectrum_slice: spectrum_slice.start
+        )
+
+    def _make_spectrum_slice(self, spectrum: Spectrum) -> SpectrumSlice | None:
+        if spectrum.frequency is None:
+            loguru.logger.error("This spectrum does not have frequency.")
+            return None
+
+        if spectrum.noise is None and (self.noise_weighted or self.compute_noise):
+            loguru.logger.error("This spectrum does not have frequency.")
+            return None
+
+        start = int(numpy.ceil(self.transformer.backward(spectrum.frequency[0])))
+        stop = int(numpy.ceil(self.transformer.backward(spectrum.frequency[-1])))
+        if start >= stop:
+            return None
+
+        frequency = self.transformer.forward(numpy.arange(start, stop))
+        intensity = numpy.interp(
+            frequency,
+            spectrum.frequency,
+            spectrum.intensity,
+            left=0.0,
+            right=0.0,
+        )
+
+        if self.noise_weighted or self.compute_noise:
+            assert spectrum.noise is not None
+            variance = numpy.square(
+                numpy.interp(
+                    frequency,
+                    spectrum.frequency,
+                    spectrum.noise,
+                    left=numpy.inf,
+                    right=numpy.inf,
+                )
+            )
+        else:
+            variance = None
+
+        if self.noise_weighted:
+            assert variance is not None
+            weight = 1.0 / variance
+        else:
+            weight = numpy.ones_like(spectrum.frequency)
+
+        if self.compute_noise:
+            assert variance is not None
+            spectrum_slice = self.SpectrumSlice(
+                start=start,
+                stop=stop,
+                weighted_intensity=weight * intensity,
+                weighted_variance=numpy.square(weight) * variance,
+                weight=weight,
+            )
+        else:
+            spectrum_slice = self.SpectrumSlice(
+                start=start,
+                stop=stop,
+                weighted_intensity=weight * intensity,
+                weighted_variance=None,
+                weight=weight,
+            )
+
+        return spectrum_slice
+
+    def _clean_range(self, start: int | None = None, stop: int | None = None):
+        if not self.spectrum_slices:
+            return
+        if start is None:
+            start = self.spectrum_slices[0].start
+        if stop is None:
+            stop = self.spectrum_slices[-1].stop
+
+        grouped_slices: list[list[SpectrumAggregator.SpectrumSlice]] = []
+        for spectrum_slice in self.spectrum_slices.irange_key(
+            max_key=stop, reverse=True
+        ):
+            if spectrum_slice.stop < start:
+                break
+            if not grouped_slices or spectrum_slice.stop < grouped_slices[-1][-1].start:
+                grouped_slices.append([])
+            grouped_slices[-1].append(spectrum_slice)
+
+        for slice_group in grouped_slices:
+            if len(slice_group) == 1:
+                continue
+
+            min_start = min(slc.start for slc in slice_group)
+            max_stop = max(slc.stop for slc in slice_group)
+            for slc in slice_group:
+                if slc.start == min_start and slc.stop == max_stop:
+                    combined_slice = slc
+                    break
+            else:
+                combined_slice = self.SpectrumSlice(
+                    start=min_start,
+                    stop=max_stop,
+                    weighted_intensity=numpy.zeros(max_stop - min_start),
+                    weighted_variance=numpy.zeros(max_stop - min_start)
+                    if self.compute_noise
+                    else None,
+                    weight=numpy.zeros(max_stop - min_start),
+                )
+                self.spectrum_slices.add(combined_slice)
+            for slc in slice_group:
+                if slc is combined_slice:
+                    continue
+                interval = slice(slc.start - min_start, slc.stop - min_start)
+                combined_slice.weighted_intensity[interval] += slc.weighted_intensity
+                if self.compute_noise:
+                    assert combined_slice.weighted_variance is not None
+                    assert slc.weighted_variance is not None
+                    combined_slice.weighted_variance[interval] += slc.weighted_variance
+                combined_slice.weight[interval] += slc.weight
+                self.spectrum_slices.discard(slc)
+
+    def merge(self, spectrum: Spectrum):
+        dirty_slices = [*map(self._make_spectrum_slice, spectrum.split())]
+        clean_slices = [slc for slc in dirty_slices if slc is not None]
+        if len(clean_slices) != len(dirty_slices):
+            loguru.logger.warning("Some spectrum slices are not merged")
+        if not clean_slices:
+            return
+
+        self.spectrum_slices.update(clean_slices)
+        self._clean_range(
+            start=clean_slices[0].start,
+            stop=clean_slices[-1].stop,
+        )
+
+    def get_spectrum(self) -> Spectrum:
+        total_length = (
+            sum(map(lambda slc: slc.stop - slc.start + 1, self.spectrum_slices)) - 1
+        )
+        frequency = numpy.full(total_length, numpy.nan)
+        intensity = numpy.full(total_length, numpy.nan)
+        noise = numpy.full(total_length, numpy.nan) if self.compute_noise else None
+        filled_length = 0
+        for spectrum_slice in self.spectrum_slices:
+            current_length = spectrum_slice.stop - spectrum_slice.start
+            interval = slice(filled_length, filled_length + current_length)
+            frequency[interval] = self.transformer.forward(
+                numpy.arange(spectrum_slice.start, spectrum_slice.stop)
+            )
+            intensity[interval] = (
+                spectrum_slice.weighted_intensity / spectrum_slice.weight
+            )
+            if self.compute_noise:
+                assert noise is not None
+                noise[interval] = (
+                    numpy.sqrt(spectrum_slice.weighted_variance) / spectrum_slice.weight
+                )
+            filled_length += current_length + 1
+        return Spectrum(intensity=intensity, frequency=frequency, noise=noise)
