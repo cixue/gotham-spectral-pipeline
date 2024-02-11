@@ -413,7 +413,9 @@ class PositionSwitchedCalibration(Calibration):
         Tcal = ref_calonoffpair.get_property(
             cls.get_calibration_temperature, property_name="Tcal"
         )
-        Tsys = cls.get_system_temperature(ref_calonoffpair, Tcal=Tcal)
+        Tsys = cls.get_system_temperature(
+            ref_calonoffpair, Tcal=Tcal, trim_fraction=0.1
+        )
 
         ref_total_power = cls.get_total_power_spectrum(
             ref_calonoffpair,
