@@ -55,6 +55,7 @@ def main(args: argparse.Namespace):
 
         spectrum.flag_rfi()
         spectrum.flag_head_tail(nchannel=2048)
+        spectrum.flag_nan()
         is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
         baseline_result = spectrum.fit_baseline(
             method="hybrid",
@@ -66,18 +67,13 @@ def main(args: argparse.Namespace):
         if baseline_result is None:
             continue
 
-        baseline, baseline_info = baseline_result
+        baseline, _ = baseline_result
         baseline_subtracted_spectrum = Spectrum(
-            frequency=spectrum.frequency,
             intensity=spectrum.intensity - baseline(spectrum.frequency),
+            frequency=spectrum.frequency,
             noise=spectrum.noise,
-            flag=numpy.zeros_like(spectrum.intensity, dtype=int),
+            flag=spectrum.flagged,
         )
-
-        assert baseline_subtracted_spectrum.frequency is not None
-        assert baseline_subtracted_spectrum.noise is not None
-
-        baseline_subtracted_spectrum.noise[spectrum.flagged] = numpy.inf
 
         if zenith_opacity is not None:
             correction_factor = (
@@ -88,8 +84,7 @@ def main(args: argparse.Namespace):
             if correction_factor is None:
                 continue
 
-            baseline_subtracted_spectrum.intensity *= correction_factor
-            baseline_subtracted_spectrum.noise *= correction_factor
+            baseline_subtracted_spectrum *= correction_factor
 
         spectrum_aggregator.merge(baseline_subtracted_spectrum)
 

@@ -291,7 +291,7 @@ class Spectrum:
     frequency: numpy.typing.NDArray[numpy.floating] | None
     intensity: numpy.typing.NDArray[numpy.floating]
     noise: numpy.typing.NDArray[numpy.floating] | None
-    flag: numpy.typing.NDArray[numpy.integer] | None
+    flag: numpy.typing.NDArray[numpy.signedinteger] | None
 
     class FlagReason(enum.Enum):
         NOT_FLAGGED = 0
@@ -363,21 +363,31 @@ class Spectrum:
         if isinstance(other, Spectrum):
             intensity = self.intensity + other.intensity
 
-            if self.frequency is None or other.frequency is None:
-                frequency = None
-            else:
-                # Assume both spectra have the same frequency and use the one of the left operand
+            # Assume both spectra have the same frequency and use any one of them. Prefer the one of the left operand.
+            if self.frequency is not None:
                 frequency = self.frequency
-
-            if self.noise is None or other.noise is None:
-                noise = None
+            elif other.frequency is not None:
+                frequency = other.frequency
             else:
+                frequency = None
+
+            if self.noise is not None and other.noise is not None:
                 noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
-
-            if self.flag is None or other.flag is None:
-                flag = None
+            elif self.noise is not None:
+                noise = self.noise
+            elif other.noise is not None:
+                noise = other.noise
             else:
+                noise = None
+
+            if self.flag is not None and other.flag is not None:
                 flag = self.flag | other.flag
+            elif self.flag is not None:
+                flag = self.flag
+            elif other.flag is not None:
+                flag = other.flag
+            else:
+                flag = None
 
             return Spectrum(
                 intensity=intensity, frequency=frequency, noise=noise, flag=flag
@@ -389,21 +399,31 @@ class Spectrum:
         if isinstance(other, Spectrum):
             intensity = self.intensity - other.intensity
 
-            if self.frequency is None or other.frequency is None:
-                frequency = None
-            else:
-                # Assume both spectra have the same frequency and use the one of the left operand
+            # Assume both spectra have the same frequency and use any one of them. Prefer the one of the left operand.
+            if self.frequency is not None:
                 frequency = self.frequency
-
-            if self.noise is None or other.noise is None:
-                noise = None
+            elif other.frequency is not None:
+                frequency = other.frequency
             else:
+                frequency = None
+
+            if self.noise is not None and other.noise is not None:
                 noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
-
-            if self.flag is None or other.flag is None:
-                flag = None
+            elif self.noise is not None:
+                noise = self.noise
+            elif other.noise is not None:
+                noise = other.noise
             else:
+                noise = None
+
+            if self.flag is not None and other.flag is not None:
                 flag = self.flag | other.flag
+            elif self.flag is not None:
+                flag = self.flag
+            elif other.flag is not None:
+                flag = other.flag
+            else:
+                flag = None
 
             return Spectrum(
                 intensity=intensity, frequency=frequency, noise=noise, flag=flag
@@ -435,26 +455,36 @@ class Spectrum:
             )
 
         if isinstance(other, Spectrum):
-            if self.frequency is None or other.frequency is None:
-                frequency = None
-            else:
-                # Assume both spectra have the same frequency and use the one of the left operand
+            # Assume both spectra have the same frequency and use any one of them. Prefer the one of the left operand.
+            if self.frequency is not None:
                 frequency = self.frequency
+            elif other.frequency is not None:
+                frequency = other.frequency
+            else:
+                frequency = None
 
             intensity = self.intensity * other.intensity
 
-            if self.noise is None or other.noise is None:
-                noise = None
-            else:
+            if self.noise is not None and other.noise is not None:
                 noise = intensity * numpy.sqrt(
                     numpy.square(self.noise / self.intensity)
                     + numpy.square(other.noise / other.intensity)
                 )
-
-            if self.flag is None or other.flag is None:
-                flag = None
+            elif self.noise is not None:
+                noise = self.noise
+            elif other.noise is not None:
+                noise = other.noise
             else:
+                noise = None
+
+            if self.flag is not None and other.flag is not None:
                 flag = self.flag | other.flag
+            elif self.flag is not None:
+                flag = self.flag
+            elif other.flag is not None:
+                flag = other.flag
+            else:
+                flag = None
 
             return Spectrum(
                 intensity=intensity, frequency=frequency, noise=noise, flag=flag
@@ -489,26 +519,36 @@ class Spectrum:
             )
 
         if isinstance(other, Spectrum):
-            if self.frequency is None or other.frequency is None:
-                frequency = None
-            else:
-                # Assume both spectra have the same frequency and use the one of the left operand
+            # Assume both spectra have the same frequency and use any one of them. Prefer the one of the left operand.
+            if self.frequency is not None:
                 frequency = self.frequency
+            elif other.frequency is not None:
+                frequency = other.frequency
+            else:
+                frequency = None
 
             intensity = self.intensity / other.intensity
 
-            if self.noise is None or other.noise is None:
-                noise = None
-            else:
+            if self.noise is not None and other.noise is not None:
                 noise = intensity * numpy.sqrt(
                     numpy.square(self.noise / self.intensity)
                     + numpy.square(other.noise / other.intensity)
                 )
-
-            if self.flag is None or other.flag is None:
-                flag = None
+            elif self.noise is not None:
+                noise = self.noise
+            elif other.noise is not None:
+                noise = other.noise
             else:
+                noise = None
+
+            if self.flag is not None and other.flag is not None:
                 flag = self.flag | other.flag
+            elif self.flag is not None:
+                flag = self.flag
+            elif other.flag is not None:
+                flag = other.flag
+            else:
+                flag = None
 
             return Spectrum(
                 intensity=intensity, frequency=frequency, noise=noise, flag=flag
@@ -881,7 +921,7 @@ class SpectrumAggregator:
             return None
 
         if spectrum.noise is None and (self.noise_weighted or self.compute_noise):
-            loguru.logger.error("This spectrum does not have frequency.")
+            loguru.logger.error("This spectrum does not have noise.")
             return None
 
         start = int(numpy.ceil(self.transformer.backward(spectrum.frequency[0])))

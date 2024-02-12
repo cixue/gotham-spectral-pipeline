@@ -204,7 +204,7 @@ class Calibration:
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
         freq_kwargs: dict = dict(),
-    ) -> numpy.typing.NDArray[numpy.floating] | None:
+    ) -> Spectrum | None:
         frequency = cls.get_observed_frequency(hdulist)
         if frequency is None:
             return None
@@ -212,7 +212,9 @@ class Calibration:
         timestamp = datetime_parser(cls.get_observed_datetime(hdulist)).timestamp()
         tau = zenith_opacity.get_opacity(timestamp, frequency)
         elevation = cls.get_observed_elevation(hdulist)
-        return numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
+        return Spectrum(
+            intensity=numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
+        )
 
 
 class PositionSwitchedCalibration(Calibration):
