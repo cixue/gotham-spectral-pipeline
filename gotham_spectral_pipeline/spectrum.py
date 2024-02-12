@@ -472,9 +472,9 @@ class Spectrum:
                     + numpy.square(other.noise / other.intensity)
                 )
             elif self.noise is not None:
-                noise = self.noise
+                noise = self.noise * other.intensity
             elif other.noise is not None:
-                noise = other.noise
+                noise = other.noise * self.intensity
             else:
                 noise = None
 
@@ -536,9 +536,9 @@ class Spectrum:
                     + numpy.square(other.noise / other.intensity)
                 )
             elif self.noise is not None:
-                noise = self.noise
+                noise = self.noise / other.intensity
             elif other.noise is not None:
-                noise = other.noise
+                noise = intensity * (other.noise / other.intensity)
             else:
                 noise = None
 
