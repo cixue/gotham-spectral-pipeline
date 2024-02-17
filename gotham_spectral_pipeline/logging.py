@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import datetime
 import re
-import sys
+import os
+import typing
 import warnings
 
 import loguru
@@ -28,18 +29,16 @@ class LogLimiter:
     _do_not_filter: bool
 
     def __init__(self, **rate_setting: float):
-        self._rate_setting = {
-            level: 0
-            for level in [
-                "TRACE",
-                "DEBUG",
-                "INFO",
-                "SUCCESS",
-                "WARNING",
-                "ERROR",
-                "CRITICAL",
-            ]
-        }
+        all_levels = [
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        ]
+        self._rate_setting = {level: 0 for level in all_levels}
         self._rate_setting.update(rate_setting)
         self._last_emit = {}
         self._silenced = {}
@@ -47,9 +46,29 @@ class LogLimiter:
         self._do_not_filter = False
 
         loguru.logger.remove()
-        loguru.logger.add(sys.stdout, level=0, filter=self._filter)
+        os.makedirs("gsp_logs", exist_ok=True)
+        for i, level in enumerate(all_levels):
+            loguru.logger.add(
+                f"gsp_logs/{i}.{level.lower()}.log",
+                level=0,
+                filter=self._filter_generator(
+                    [self._filter_by_level(level), self._filter_by_rate]
+                ),
+            )
 
-    def _filter(self, record: loguru.Record) -> bool:
+    def _filter_generator(self, filters):
+        def combined_filter(record: loguru.Record) -> bool:
+            return all(map(lambda f: f(record), filters))
+
+        return combined_filter
+
+    def _filter_by_level(self, level: str) -> typing.Callable[[loguru.Record], bool]:
+        def filter_by_level(record: loguru.Record) -> bool:
+            return record["level"].name == level
+
+        return filter_by_level
+
+    def _filter_by_rate(self, record: loguru.Record) -> bool:
         if self._do_not_filter:
             return True
         level = record["level"].name
