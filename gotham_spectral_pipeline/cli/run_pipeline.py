@@ -1,10 +1,12 @@
 import argparse
+import os
 import pathlib
 import traceback
 
 import loguru
 
 from .. import PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
+from ..logging import capture_builtin_warnings, LogLimiter
 
 
 def name() -> str:
@@ -22,12 +24,18 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--zenith_opacity", type=ZenithOpacity)
     parser.add_argument("--filter", type=str)
     parser.add_argument("--channel_width", type=float, required=True)
-    parser.add_argument("--output_directory", type=pathlib.Path)
+    parser.add_argument("--prefix", type=str)
+    parser.add_argument("--output_directory", type=pathlib.Path, default="output")
+    parser.add_argument("--logs_directory", type=pathlib.Path, default="logs")
 
 
 def main(args: argparse.Namespace):
     sdfits: SDFits = args.sdfits
     zenith_opacity: ZenithOpacity | None = args.zenith_opacity
+    prefix = sdfits.path.name if args.prefix is None else args.prefix
+
+    log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
+    capture_builtin_warnings()
 
     if args.filter is None:
         filtered_rows = sdfits.rows
@@ -96,10 +104,12 @@ def main(args: argparse.Namespace):
                 for sigref in paired_row
                 for calonoff in paired_row[sigref]
             }
-            loguru.logger.critical(f"Uncaught exception while working on {sdfits.path = }, {indices = }\n{traceback.format_exc()}")
+            loguru.logger.critical(
+                f"Uncaught exception while working on {sdfits.path = }, {indices = }\n{traceback.format_exc()}"
+            )
 
-    output_directory: pathlib.Path = (
-        pathlib.Path.cwd() if args.output_directory is None else args.output_directory
-    )
-    output_path = output_directory / sdfits.path.name
+    os.makedirs(args.output_directory, exist_ok=True)
+    output_path = args.output_directory / prefix
     spectrum_aggregator.get_spectrum().to_npz(output_path)
+
+    log_limiter.log_silence_report()

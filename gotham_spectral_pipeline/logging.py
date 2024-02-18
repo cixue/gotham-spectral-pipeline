@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import re
 import os
+import pathlib
 import typing
 import warnings
 
@@ -28,7 +29,12 @@ class LogLimiter:
     _regex_number_matcher: re.Pattern
     _do_not_filter: bool
 
-    def __init__(self, **rate_setting: float):
+    def __init__(
+        self,
+        prefix: str,
+        logs_directory: pathlib.Path = pathlib.Path("."),
+        **rate_setting: float,
+    ):
         all_levels = [
             "TRACE",
             "DEBUG",
@@ -46,10 +52,11 @@ class LogLimiter:
         self._do_not_filter = False
 
         loguru.logger.remove()
-        os.makedirs("gsp_logs", exist_ok=True)
+        os.makedirs(logs_directory, exist_ok=True)
         for i, level in enumerate(all_levels):
+            filename = logs_directory / f"{prefix}.{i}.{level.lower()}.log"
             loguru.logger.add(
-                f"gsp_logs/{i}.{level.lower()}.log",
+                filename,
                 level=0,
                 filter=self._filter_generator(
                     [self._filter_by_level(level), self._filter_by_rate]
