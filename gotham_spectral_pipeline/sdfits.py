@@ -75,7 +75,7 @@ class SDFits:
             self.rows = rows
             return
 
-        loguru.logger.error("Unsupported file extension: {self.path}")
+        loguru.logger.error(f"Unsupported file extension: {self.path}")
 
     @staticmethod
     def _read_blocks(path_to_index: pathlib.Path) -> dict[str, list[str]]:
