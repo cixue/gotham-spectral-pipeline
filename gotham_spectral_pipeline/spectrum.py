@@ -887,7 +887,7 @@ class SpectrumAggregator:
             return (value - self.zero_point) / self.step
 
     @dataclasses.dataclass
-    class SpectrumSlice():
+    class SpectrumSlice:
         start: int
         stop: int
         buffer_start: int
@@ -1012,11 +1012,14 @@ class SpectrumAggregator:
         if stop is None:
             stop = self.spectrum_slices[-1].stop
 
+        first_slice_before_start = max(
+            self.spectrum_slices.bisect_key_left(start) - 1, 0
+        )
         grouped_slices: list[list[SpectrumAggregator.SpectrumSlice]] = []
-        for spectrum_slice in self.spectrum_slices.irange_key(
-            max_key=stop, reverse=True
+        for spectrum_slice in self.spectrum_slices.islice(
+            start=first_slice_before_start
         ):
-            if spectrum_slice.stop < start:
+            if spectrum_slice.start > stop:
                 break
             if not grouped_slices or spectrum_slice.stop < grouped_slices[-1][-1].start:
                 grouped_slices.append([])
@@ -1087,6 +1090,11 @@ class SpectrumAggregator:
         )
 
     def get_spectrum(self) -> Spectrum:
+        if not self.spectrum_slices:
+            return Spectrum(
+                intensity=[], frequency=[], noise=[] if self.compute_noise else None
+            )
+
         total_length = (
             sum(map(lambda slc: slc.stop - slc.start + 1, self.spectrum_slices)) - 1
         )
