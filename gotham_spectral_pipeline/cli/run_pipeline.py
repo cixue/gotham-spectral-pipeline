@@ -78,11 +78,14 @@ def main(args: argparse.Namespace):
 
             assert spectrum.flag is not None
             rfi_in_body_count = (
-                spectrum.flag[
-                    (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
-                ]
-                & Spectrum.FlagReason.RFI.value
-            ) != 0
+                (
+                    spectrum.flag[
+                        (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
+                    ]
+                    & Spectrum.FlagReason.RFI.value
+                )
+                != 0
+            ).sum()
             if rfi_in_body_count > 256:
                 loguru.logger.error(
                     f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
