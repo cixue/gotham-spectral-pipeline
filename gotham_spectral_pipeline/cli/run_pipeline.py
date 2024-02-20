@@ -1,6 +1,8 @@
 import argparse
+import collections
 import os
 import pathlib
+import pprint
 import traceback
 
 import loguru
@@ -46,6 +48,7 @@ def main(args: argparse.Namespace):
     if len(paired_rows) == 0:
         return
 
+    num_integration_dropped: dict[str, int] = collections.defaultdict(int)
     spectrum_aggregator = SpectrumAggregator(
         SpectrumAggregator.LinearTransformer(args.channel_width)
     )
@@ -58,12 +61,14 @@ def main(args: argparse.Namespace):
         try:
             sigrefpair = paired_row.get_paired_hdu(sdfits)
             if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
+                num_integration_dropped["Failed prechecks"] += 1
                 continue
 
             spectrum = PositionSwitchedCalibration.get_calibrated_spectrum(
                 sigrefpair, freq_kwargs=dict(unit="Hz")
             )
             if spectrum is None:
+                num_integration_dropped["No calibrated spectrum returned"] += 1
                 continue
 
             assert spectrum.frequency is not None
@@ -82,6 +87,7 @@ def main(args: argparse.Namespace):
                 loguru.logger.error(
                     f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
                 )
+                num_integration_dropped["Too many RFI channels"] += 1
                 continue
 
             spectrum.flag_nan()
@@ -96,6 +102,7 @@ def main(args: argparse.Namespace):
                 residual_threshold=0.1,
             )
             if baseline_result is None:
+                num_integration_dropped["Failed baseline fitting"] += 1
                 continue
 
             baseline, _ = baseline_result
@@ -113,6 +120,9 @@ def main(args: argparse.Namespace):
                     )
                 )
                 if correction_factor is None:
+                    num_integration_dropped[
+                        "Can't retrieve opacity correction factor"
+                    ] += 1
                     continue
                 baseline_subtracted_spectrum *= correction_factor
 
@@ -121,6 +131,11 @@ def main(args: argparse.Namespace):
             loguru.logger.critical(
                 f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"
             )
+            num_integration_dropped["Uncaught expeption"] += 1
+    if num_integration_dropped:
+        loguru.logger.info(
+            f"Some integrations dropped due to the following reasons:\n{pprint.pformat(dict(num_integration_dropped))}"
+        )
 
     os.makedirs(args.output_directory, exist_ok=True)
     output_path = args.output_directory / prefix
