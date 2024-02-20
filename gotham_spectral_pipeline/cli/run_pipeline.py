@@ -64,7 +64,7 @@ def main(args: argparse.Namespace):
             assert spectrum.frequency is not None
 
             spectrum.flag_rfi()
-            spectrum.flag_head_tail(nchannel=2048)
+            spectrum.flag_head_tail(nchannel=4096)
             spectrum.flag_nan()
             is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
             baseline_result = spectrum.fit_baseline(
