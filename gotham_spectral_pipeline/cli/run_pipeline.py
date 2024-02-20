@@ -50,6 +50,11 @@ def main(args: argparse.Namespace):
         SpectrumAggregator.LinearTransformer(args.channel_width)
     )
     for paired_row in paired_rows:
+        debug_indices = {
+            f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"])
+            for sigref in paired_row
+            for calonoff in paired_row[sigref]
+        }
         try:
             sigrefpair = paired_row.get_paired_hdu(sdfits)
             if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
@@ -65,6 +70,20 @@ def main(args: argparse.Namespace):
 
             spectrum.flag_rfi()
             spectrum.flag_head_tail(nchannel=4096)
+
+            assert spectrum.flag is not None
+            rfi_in_body_count = (
+                spectrum.flag[
+                    (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
+                ]
+                & Spectrum.FlagReason.RFI.value
+            ) != 0
+            if rfi_in_body_count > 256:
+                loguru.logger.error(
+                    f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
+                )
+                continue
+
             spectrum.flag_nan()
             is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
             baseline_result = spectrum.fit_baseline(
@@ -99,13 +118,8 @@ def main(args: argparse.Namespace):
 
             spectrum_aggregator.merge(baseline_subtracted_spectrum)
         except Exception:
-            indices = {
-                f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"])
-                for sigref in paired_row
-                for calonoff in paired_row[sigref]
-            }
             loguru.logger.critical(
-                f"Uncaught exception while working on {sdfits.path = }, {indices = }\n{traceback.format_exc()}"
+                f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"
             )
 
     os.makedirs(args.output_directory, exist_ok=True)
