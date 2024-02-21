@@ -6,6 +6,7 @@ import pprint
 import traceback
 
 import loguru
+import tqdm  # type: ignore
 
 from .. import PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
 from ..logging import capture_builtin_warnings, LogLimiter
@@ -52,7 +53,7 @@ def main(args: argparse.Namespace):
     spectrum_aggregator = SpectrumAggregator(
         SpectrumAggregator.LinearTransformer(args.channel_width)
     )
-    for paired_row in paired_rows:
+    for paired_row in tqdm.tqdm(paired_rows):
         debug_indices = {
             f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"])
             for sigref in paired_row
