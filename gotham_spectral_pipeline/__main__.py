@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from .cli import generate_cleo_command, run_pipeline
+from .cli import extract_system_temperature, generate_cleo_command, run_pipeline
 
 
 def main():
@@ -18,6 +18,7 @@ def main():
     )
 
     subcommands = [
+        extract_system_temperature,
         generate_cleo_command,
         run_pipeline,
     ]
@@ -26,7 +27,6 @@ def main():
         subparser = subparsers.add_parser(subcommand.name(), help=subcommand.help())
         subcommand.configure_parser(subparser)
         entry_points[subcommand.name()] = subcommand.main
-
 
     args = parser.parse_args()
     exit_code = entry_points[args.command](args)
