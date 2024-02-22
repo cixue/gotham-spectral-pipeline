@@ -1,0 +1,9 @@
+#!/bin/bash
+
+function main() {
+    local script_path=$(realpath ${BASH_SOURCE[0]:-${(%):-%x}})
+    local repo_path=$(dirname $(dirname ${script_path}))
+    PYTHONPATH=${repo_path} python -m gotham_spectral_pipeline "$@"
+}
+
+main "$@"
