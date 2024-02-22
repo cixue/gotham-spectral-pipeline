@@ -1,0 +1,42 @@
+#!/bin/bash
+
+function print_usage_and_exit() {
+    local script_path=$(realpath ${BASH_SOURCE[0]:-${(%):-%x}})
+    local script_basename=$(basename ${script_path})
+    echo "Usage: ${script_basename} -- pattern project_code [project_code ...] [-- pattern project_code [project_code ...] ...]"
+    echo ""
+    echo "Available pattern substitution:"
+    echo "  {semester}: semester name, e.g. 17A"
+    echo "  {project}: project code, e.g. 17A_420"
+    exit 1
+}
+
+function main() {
+    local output=()
+    if [[ $# == 0 ]]; then
+        print_usage_and_exit
+    fi
+    while [[ $# > 0 ]]; do
+        if [[ $1 != "--" ]]; then
+             print_usage_and_exit
+        fi
+        shift
+
+        if [[ $# == 0 || $1 == "--" ]]; then
+             print_usage_and_exit
+        fi
+        local pattern=$1; shift
+
+        if [[ $# == 0 || $1 == "--" ]]; then
+             print_usage_and_exit
+        fi
+        while [[ $# > 0 && $1 != "--" ]]; do
+            local project=$1; shift
+            local semester=${project%_*}
+            output+=($(ls -d $(echo ${pattern} | sed -e "s/{semester}/${semester}/g" -e "s/{project}/${project}/g") 2>/dev/null))
+        done
+    done
+    echo ${output[@]}
+}
+
+main "$@"
