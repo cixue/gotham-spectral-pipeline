@@ -46,7 +46,7 @@ def main(args: argparse.Namespace):
             )
             output = paired_row["ref"]["caloff"][
                 ["PROJECT", "FDNUM", "PLNUM", "CENTFREQ", "BANDWIDTH", "TSYS"]
-            ]
+            ].copy()
             output["TSYS"] = Tsys
             batched_output.append(output)
         pandas.concat(batched_output).to_csv(
