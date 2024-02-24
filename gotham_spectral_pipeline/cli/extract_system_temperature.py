@@ -39,14 +39,24 @@ def main(args: argparse.Namespace):
         batched_output: list[pandas.DataFrame] = list()
         for paired_row in tqdm.tqdm(paired_rows, leave=False):
             sigrefpair = paired_row.get_paired_hdu(sdfits)
-            if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
-                continue
             Tsys = PositionSwitchedCalibration.get_system_temperature(
                 sigrefpair["ref"], trim_fraction=0.1
             )
-            output = paired_row["ref"]["caloff"][
-                ["PROJECT", "FDNUM", "PLNUM", "CENTFREQ", "BANDWIDTH", "TSYS"]
-            ].copy()
+            output = paired_row["ref"]["caloff"][[
+                "PROJECT",
+                "INDEX",
+                "SCAN",
+                "PLNUM",
+                "IFNUM",
+                "FEED",
+                "FDNUM",
+                "INT",
+                "SAMPLER",
+                "CENTFREQ",
+                "BANDWIDTH",
+                "EXPOSURE",
+                "TSYS",
+            ]].copy()
             output["TSYS"] = Tsys
             batched_output.append(output)
         pandas.concat(batched_output).to_csv(
