@@ -16,8 +16,15 @@ def help() -> str:
     return "Extract system temperature from integration and relevant info and output to a csv file."
 
 
+def return_exist_file(arg: str) -> pathlib.Path:
+    path = pathlib.Path(arg)
+    if path.exists():
+        return path
+    raise argparse.ArgumentTypeError(f"{arg} does not exist!")
+
+
 def configure_parser(parser: argparse.ArgumentParser):
-    parser.add_argument("--sdfits", type=SDFits, nargs="+", required=True)
+    parser.add_argument("--sdfits", type=return_exist_file, nargs="+", required=True)
     parser.add_argument("--filter", type=str)
     parser.add_argument("--output", type=argparse.FileType("w"), default="Tsys.csv")
     parser.add_argument("--prefix", type=str, default="Tsys")
@@ -29,7 +36,8 @@ def main(args: argparse.Namespace):
     capture_builtin_warnings()
 
     first_write = True
-    for sdfits in tqdm.tqdm(args.sdfits):
+    for sdfits_path in tqdm.tqdm(args.sdfits):
+        sdfits = SDFits(sdfits_path)
         if args.filter is None:
             filtered_rows = sdfits.rows
         else:
