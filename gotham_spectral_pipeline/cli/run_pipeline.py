@@ -34,7 +34,7 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
     parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
-    parser.add_argument("--Tsys_output_bad_session", type=bool, default=True)
+    parser.add_argument("--Tsys_output_bad_session", action="store_true")
     parser.add_argument(
         "--Tsys_bad_session_output_subdirectory", type=pathlib.Path, default="bad_Tsys"
     )
