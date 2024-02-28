@@ -164,14 +164,18 @@ def main(args: argparse.Namespace):
 
     Tsys_success_rate = Tsys_stats["succeed"] / Tsys_stats["total"]
     if Tsys_success_rate < args.Tsys_min_success_rate:
-        output_directory = (
-            args.output_directory / args.Tsys_bad_session_output_subdirectory
-        )
+        if args.Tsys_output_bad_session:
+            output_directory = (
+                args.output_directory / args.Tsys_bad_session_output_subdirectory
+            )
+        else:
+            output_directory = None
     else:
         output_directory = args.output_directory
 
-    os.makedirs(output_directory, exist_ok=True)
-    output_path = output_directory / prefix
-    spectrum_aggregator.get_spectrum().to_npz(output_path)
+    if output_directory is not None:
+        os.makedirs(output_directory, exist_ok=True)
+        output_path = output_directory / prefix
+        spectrum_aggregator.get_spectrum().to_npz(output_path)
 
     log_limiter.log_silence_report()
