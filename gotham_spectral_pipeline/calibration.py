@@ -407,9 +407,6 @@ class PositionSwitchedCalibration(Calibration):
     def get_calibrated_spectrum(
         cls, sigrefpair: SigRefPairedHDUList, freq_kwargs: dict = dict()
     ) -> Spectrum | None:
-        if cls.should_be_discarded(sigrefpair):
-            return None
-
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
         Tcal = ref_calonoffpair.get_property(
