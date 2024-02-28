@@ -1,10 +1,10 @@
 from .sdfits import SDFits
 from .spectrum import Spectrum
-from .utils import datetime_parser
+from .utils import datetime_parser, lru_cache
 from .zenith_opacity import ZenithOpacity
 
-import functools
 import typing
+import uuid
 
 import astropy.constants  # type: ignore
 import astropy.io.fits  # type: ignore
@@ -33,7 +33,10 @@ class CalOnOffPairedHDUList(dict[CalOnOffName, list[astropy.io.fits.PrimaryHDU]]
     T2 = typing.TypeVar("T2")
 
     def __hash__(self):
-        return hash(tuple(sorted(self.items())))
+        return hash(id(self))
+
+    def __eq__(self, other):
+        return self is other
 
     def get_property(
         self,
@@ -120,6 +123,7 @@ class Calibration:
         raise NotImplementedError()
 
     @classmethod
+    @lru_cache(maxsize=128)
     def get_system_temperature(
         cls,
         calonoffpair: CalOnOffPairedHDUList,
