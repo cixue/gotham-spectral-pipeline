@@ -410,7 +410,9 @@ class PositionSwitchedCalibration(Calibration):
     @classmethod
     def get_calibrated_spectrum(
         cls, sigrefpair: SigRefPairedHDUList, freq_kwargs: dict = dict()
-    ) -> Spectrum | None:
+    ) -> tuple[Spectrum | None, dict]:
+        metadata: dict[str, typing.Any] = dict()
+
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
         Tcal = ref_calonoffpair.get_property(
@@ -419,6 +421,8 @@ class PositionSwitchedCalibration(Calibration):
         Tsys = cls.get_system_temperature(
             ref_calonoffpair, Tcal=Tcal, trim_fraction=0.1
         )
+        metadata["Tcal"] = Tcal
+        metadata["Tsys"] = Tsys
 
         ref_total_power = cls.get_total_power_spectrum(
             ref_calonoffpair,
@@ -428,7 +432,8 @@ class PositionSwitchedCalibration(Calibration):
             freq_kwargs=freq_kwargs,
         )
         if ref_total_power is None:
-            return None
+            return None, metadata
+        metadata["ref_total_power"] = ref_total_power
 
         sig_total_power = cls.get_total_power_spectrum(
             sig_calonoffpair,
@@ -438,9 +443,10 @@ class PositionSwitchedCalibration(Calibration):
             freq_kwargs=freq_kwargs,
         )
         if sig_total_power is None:
-            return None
+            return None, metadata
+        metadata["sig_total_power"] = sig_total_power
 
-        return sig_total_power - ref_total_power
+        return sig_total_power - ref_total_power, metadata
 
 
 class PointingCalibration(Calibration):

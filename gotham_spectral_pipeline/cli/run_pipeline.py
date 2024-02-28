@@ -31,6 +31,14 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--output_directory", type=pathlib.Path, default="output")
     parser.add_argument("--logs_directory", type=pathlib.Path, default="logs")
 
+    parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
+    parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
+    parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
+    parser.add_argument("--Tsys_output_bad_session", type=bool, default=True)
+    parser.add_argument(
+        "--Tsys_bad_session_output_subdirectory", type=pathlib.Path, default="bad_Tsys"
+    )
+
 
 def main(args: argparse.Namespace):
     sdfits: SDFits = args.sdfits
@@ -49,6 +57,7 @@ def main(args: argparse.Namespace):
     if len(paired_rows) == 0:
         return
 
+    Tsys_stats = dict(succeed=0, total=0)
     num_integration_dropped: dict[str, int] = collections.defaultdict(int)
     spectrum_aggregator = SpectrumAggregator(
         SpectrumAggregator.LinearTransformer(args.channel_width)
@@ -65,12 +74,24 @@ def main(args: argparse.Namespace):
                 num_integration_dropped["Failed prechecks"] += 1
                 continue
 
-            spectrum = PositionSwitchedCalibration.get_calibrated_spectrum(
+            (
+                spectrum,
+                spectrum_metadata,
+            ) = PositionSwitchedCalibration.get_calibrated_spectrum(
                 sigrefpair, freq_kwargs=dict(unit="Hz")
             )
             if spectrum is None:
                 num_integration_dropped["No calibrated spectrum returned"] += 1
                 continue
+
+            Tsys_stats["total"] += 1
+            if not spectrum_metadata["Tsys"] > args.Tsys_min_threshold:
+                num_integration_dropped["Tsys exceeds min threshold"] += 1
+                continue
+            if not spectrum_metadata["Tsys"] < args.Tsys_max_threshold:
+                num_integration_dropped["Tsys exceeds max threshold"] += 1
+                continue
+            Tsys_stats["succeed"] += 1
 
             assert spectrum.frequency is not None
 
@@ -141,8 +162,16 @@ def main(args: argparse.Namespace):
             f"Some integrations dropped due to the following reasons:\n{pprint.pformat(dict(num_integration_dropped))}"
         )
 
-    os.makedirs(args.output_directory, exist_ok=True)
-    output_path = args.output_directory / prefix
+    Tsys_success_rate = Tsys_stats["succeed"] / Tsys_stats["total"]
+    if Tsys_success_rate < args.Tsys_min_success_rate:
+        output_directory = (
+            args.output_directory / args.Tsys_bad_session_output_subdirectory
+        )
+    else:
+        output_directory = args.output_directory
+
+    os.makedirs(output_directory, exist_ok=True)
+    output_path = output_directory / prefix
     spectrum_aggregator.get_spectrum().to_npz(output_path)
 
     log_limiter.log_silence_report()
