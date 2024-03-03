@@ -114,21 +114,22 @@ def main(args: argparse.Namespace):
             spectrum.flag_head_tail(nchannel=4096)
 
             assert spectrum.flag is not None
-            rfi_in_body_count = (
-                (
-                    spectrum.flag[
-                        (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
-                    ]
-                    & Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
-                )
-                != 0
-            ).sum()
-            if args.max_rfi_channel > 0 and rfi_in_body_count > args.max_rfi_channel:
-                loguru.logger.error(
-                    f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
-                )
-                num_integration_dropped["Too many RFI channels"] += 1
-                continue
+            if args.max_rfi_channel > 0:
+                rfi_in_body_count = (
+                    (
+                        spectrum.flag[
+                            (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
+                        ]
+                        & Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
+                    )
+                    != 0
+                ).sum()
+                if rfi_in_body_count > args.max_rfi_channel:
+                    loguru.logger.error(
+                        f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
+                    )
+                    num_integration_dropped["Too many RFI channels"] += 1
+                    continue
 
             spectrum.flag_nan()
             is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
