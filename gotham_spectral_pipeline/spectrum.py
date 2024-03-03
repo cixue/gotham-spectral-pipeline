@@ -849,6 +849,26 @@ class Spectrum:
         output = numpy.load(path)
         return Spectrum(**output)
 
+    def to_txt(
+        self,
+        path: pathlib.Path,
+        columns: list[str] = ["frequency", "intensity", "noise"],
+    ):
+        for column in columns:
+            if getattr(self, column) is None:
+                loguru.logger.error(f"This spectrum does not have {column}")
+                return
+        output = [getattr(self, column) for column in columns]
+        numpy.savetxt(path, numpy.stack(output, axis=-1), header=f"{' '.join(columns)}")
+
+    @classmethod
+    def from_txt(self, path: pathlib.Path) -> "Spectrum":
+        with open(path, mode="r") as fin:
+            header = fin.readline()
+            columns = header.lstrip("# ").split()
+            output = numpy.loadtxt(fin)
+        return Spectrum(**dict(zip(columns, output)))
+
 
 class SpectrumAggregator:
 
