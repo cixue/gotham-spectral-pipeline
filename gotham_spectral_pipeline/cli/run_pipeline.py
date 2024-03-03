@@ -30,6 +30,7 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--prefix", type=str)
     parser.add_argument("--output_directory", type=pathlib.Path, default="output")
     parser.add_argument("--logs_directory", type=pathlib.Path, default="logs")
+    parser.add_argument("--exit_if_exist", action="store_true")
 
     parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
     parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
@@ -44,6 +45,17 @@ def main(args: argparse.Namespace):
     sdfits: SDFits = args.sdfits
     zenith_opacity: ZenithOpacity | None = args.zenith_opacity
     prefix = sdfits.path.name if args.prefix is None else args.prefix
+
+    if args.exit_if_exist:
+        possible_output_directories: list[pathlib.Path] = list()
+        possible_output_directories.append(args.output_directory)
+        if args.Tsys_output_bad_session:
+            possible_output_directories.append(
+                args.output_directory / args.Tsys_bad_session_output_subdirectory
+            )
+        for possible_output_directory in possible_output_directories:
+            if (possible_output_directory / (prefix + ".npz")).exists():
+                return
 
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
