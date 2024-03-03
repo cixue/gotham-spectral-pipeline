@@ -61,6 +61,7 @@ class LogLimiter:
                 filter=self._filter_generator(
                     [self._filter_by_level(level), self._filter_by_rate]
                 ),
+                mode="w",
             )
 
     def _filter_generator(self, filters):
