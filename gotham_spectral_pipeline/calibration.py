@@ -69,6 +69,11 @@ class SigRefPairedHDUList(dict[SigRefName, CalOnOffPairedHDUList]):
 
 
 class SigRefPairedRows(dict[SigRefName, CalOnOffPairedRows]):
+    metadata: dict[str, typing.Any]
+
+    def __init__(self, metadata: dict[str, typing.Any] = dict(), *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.metadata = metadata
 
     def get_paired_hdu(self, sdfits: SDFits) -> SigRefPairedHDUList:
         return SigRefPairedHDUList(
@@ -263,6 +268,11 @@ class PositionSwitchedCalibration(Calibration):
                         sig=CalOnOffPairedRows(
                             caloff=pandas.DataFrame([sig_caloff_]),
                             calon=pandas.DataFrame([sig_calon_]),
+                        ),
+                        metadata=dict(
+                            group=dict(
+                                source=group[0], offscan=group[1], sampler=group[2]
+                            )
                         ),
                     )
                     for (
@@ -483,6 +493,9 @@ class PointingCalibration(Calibration):
                 SigRefPairedRows(
                     ref=CalOnOffPairedRows(caloff=ref_caloff, calon=ref_calon),
                     sig=CalOnOffPairedRows(caloff=sig_caloff, calon=sig_calon),
+                    metadata=dict(
+                        group=dict(object=group[0], scan=group[1], plnum=group[2])
+                    ),
                 )
             )
         return paired_up_rows
