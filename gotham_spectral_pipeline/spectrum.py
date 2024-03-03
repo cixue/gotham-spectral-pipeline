@@ -296,9 +296,9 @@ class Spectrum:
 
     class FlagReason(enum.Enum):
         NOT_FLAGGED = 0
-        CHUNK_EDGES = 1 << 0
-        RFI = 1 << 1
-        NAN = 1 << 2
+        NAN = 1 << 0
+        CHUNK_EDGES = 1 << 1
+        FREQUENCY_DOMAIN_RFI = 1 << 2
 
     def __init__(
         self,
@@ -663,7 +663,7 @@ class Spectrum:
             res[i : size + i][is_signal] = True
         return res
 
-    def flag_rfi(
+    def flag_frequency_domain_rfi(
         self, *, nadjacent: int = 3, alpha: float = 1e-6, chunk_size: int = 1024
     ):
         if self.flag is None:
@@ -675,7 +675,7 @@ class Spectrum:
         )
         if is_rfi is None:
             return
-        self.flag[is_rfi] |= Spectrum.FlagReason.RFI.value  # type: ignore
+        self.flag[is_rfi] |= Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value  # type: ignore
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
