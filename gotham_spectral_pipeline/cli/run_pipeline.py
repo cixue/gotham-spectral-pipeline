@@ -24,8 +24,8 @@ def help() -> str:
 
 
 def configure_parser(parser: argparse.ArgumentParser):
-    parser.add_argument("--sdfits", type=SDFits, required=True)
-    parser.add_argument("--zenith_opacity", type=ZenithOpacity)
+    parser.add_argument("--sdfits", type=pathlib.Path, required=True)
+    parser.add_argument("--zenith_opacity", type=pathlib.Path)
     parser.add_argument("--filter", type=str)
     parser.add_argument("--channel_width", type=float, required=True)
     parser.add_argument("--prefix", type=str)
@@ -42,12 +42,15 @@ def configure_parser(parser: argparse.ArgumentParser):
 
 
 def main(args: argparse.Namespace):
-    sdfits: SDFits = args.sdfits
-    zenith_opacity: ZenithOpacity | None = args.zenith_opacity
-    prefix = sdfits.path.name if args.prefix is None else args.prefix
+    prefix = args.sdfits.name if args.prefix is None else args.prefix
 
     if args.exit_if_exist and (args.output_directory / (prefix + ".npz")).exists():
         return
+
+    sdfits: SDFits = SDFits(args.sdfits)
+    zenith_opacity: ZenithOpacity | None = (
+        None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
+    )
 
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
