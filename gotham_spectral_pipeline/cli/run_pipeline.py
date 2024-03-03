@@ -34,6 +34,8 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--grouped_by_sampler", action="store_true")
     parser.add_argument("--exit_if_exist", action="store_true")
 
+    parser.add_argument("--max_rfi_channel", type=int, default=256)
+
     parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
     parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
@@ -121,7 +123,7 @@ def main(args: argparse.Namespace):
                 )
                 != 0
             ).sum()
-            if rfi_in_body_count > 256:
+            if args.max_rfi_channel > 0 and rfi_in_body_count > args.max_rfi_channel:
                 loguru.logger.error(
                     f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
                 )
