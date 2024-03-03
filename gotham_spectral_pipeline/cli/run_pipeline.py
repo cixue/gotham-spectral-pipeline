@@ -4,6 +4,7 @@ import os
 import pathlib
 import pprint
 import traceback
+import typing
 
 import loguru
 import tqdm  # type: ignore
@@ -30,15 +31,12 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--prefix", type=str)
     parser.add_argument("--output_directory", type=pathlib.Path, default="output")
     parser.add_argument("--logs_directory", type=pathlib.Path, default="logs")
+    parser.add_argument("--grouped_by_sampler", action="store_true")
     parser.add_argument("--exit_if_exist", action="store_true")
 
     parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
     parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
-    parser.add_argument("--Tsys_output_bad_session", action="store_true")
-    parser.add_argument(
-        "--Tsys_bad_session_output_subdirectory", type=pathlib.Path, default="bad_Tsys"
-    )
 
 
 def main(args: argparse.Namespace):
@@ -46,16 +44,8 @@ def main(args: argparse.Namespace):
     zenith_opacity: ZenithOpacity | None = args.zenith_opacity
     prefix = sdfits.path.name if args.prefix is None else args.prefix
 
-    if args.exit_if_exist:
-        possible_output_directories: list[pathlib.Path] = list()
-        possible_output_directories.append(args.output_directory)
-        if args.Tsys_output_bad_session:
-            possible_output_directories.append(
-                args.output_directory / args.Tsys_bad_session_output_subdirectory
-            )
-        for possible_output_directory in possible_output_directories:
-            if (possible_output_directory / (prefix + ".npz")).exists():
-                return
+    if args.exit_if_exist and (args.output_directory / (prefix + ".npz")).exists():
+        return
 
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
@@ -69,12 +59,23 @@ def main(args: argparse.Namespace):
     if len(paired_rows) == 0:
         return
 
-    Tsys_stats = dict(succeed=0, total=0)
     num_integration_dropped: dict[str, int] = collections.defaultdict(int)
-    spectrum_aggregator = SpectrumAggregator(
-        SpectrumAggregator.LinearTransformer(args.channel_width)
+    spectrum_aggregator: dict[str, SpectrumAggregator] = collections.defaultdict(
+        lambda: SpectrumAggregator(
+            SpectrumAggregator.LinearTransformer(args.channel_width)
+        )
     )
+    Tsys_stats: dict[str, dict[str, int]] = collections.defaultdict(
+        lambda: dict(succeed=0, total=0)
+    )
+    all_groups: set[str] = set()
     for paired_row in tqdm.tqdm(paired_rows):
+        if args.grouped_by_sampler:
+            group = paired_row.metadata["group"]["sampler"]
+        else:
+            group = "none"
+        all_groups.add(group)
+
         debug_indices = {
             f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"])
             for sigref in paired_row
@@ -96,14 +97,14 @@ def main(args: argparse.Namespace):
                 num_integration_dropped["No calibrated spectrum returned"] += 1
                 continue
 
-            Tsys_stats["total"] += 1
+            Tsys_stats[group]["total"] += 1
             if not spectrum_metadata["Tsys"] > args.Tsys_min_threshold:
                 num_integration_dropped["Tsys exceeds min threshold"] += 1
                 continue
             if not spectrum_metadata["Tsys"] < args.Tsys_max_threshold:
                 num_integration_dropped["Tsys exceeds max threshold"] += 1
                 continue
-            Tsys_stats["succeed"] += 1
+            Tsys_stats[group]["succeed"] += 1
 
             assert spectrum.frequency is not None
 
@@ -163,7 +164,7 @@ def main(args: argparse.Namespace):
                     continue
                 baseline_subtracted_spectrum *= correction_factor
 
-            spectrum_aggregator.merge(baseline_subtracted_spectrum)
+            spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
         except Exception:
             loguru.logger.critical(
                 f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"
@@ -174,20 +175,23 @@ def main(args: argparse.Namespace):
             f"Some integrations dropped due to the following reasons:\n{pprint.pformat(dict(num_integration_dropped))}"
         )
 
-    Tsys_success_rate = Tsys_stats["succeed"] / Tsys_stats["total"]
-    if Tsys_success_rate < args.Tsys_min_success_rate:
-        if args.Tsys_output_bad_session:
-            output_directory = (
-                args.output_directory / args.Tsys_bad_session_output_subdirectory
-            )
+    final_spectrum_aggregator: SpectrumAggregator | None = None
+    for group in sorted(all_groups):
+        Tsys_success_rate = Tsys_stats[group]["succeed"] / Tsys_stats[group]["total"]
+        if Tsys_success_rate >= args.Tsys_min_success_rate:
+            if final_spectrum_aggregator is None:
+                final_spectrum_aggregator = spectrum_aggregator[group]
+            else:
+                final_spectrum_aggregator.merge(spectrum_aggregator[group])
         else:
-            output_directory = None
-    else:
-        output_directory = args.output_directory
+            loguru.logger.info(
+                f"Dropped integrations in {group = } since success rate = {Tsys_success_rate} < required minimum success rate = {args.Tsys_min_success_rate}"
+            )
 
-    if output_directory is not None:
+    if final_spectrum_aggregator is not None:
+        output_directory = args.output_directory
         os.makedirs(output_directory, exist_ok=True)
         output_path = output_directory / prefix
-        spectrum_aggregator.get_spectrum().to_npz(output_path)
+        spectrum_aggregator[group].get_spectrum().to_npz(output_path)
 
     log_limiter.log_silence_report()

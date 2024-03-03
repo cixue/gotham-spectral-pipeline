@@ -1075,13 +1075,16 @@ class SpectrumAggregator:
                 ]
                 self.spectrum_slices.discard(slc)
 
-    def merge(self, spectrum: Spectrum):
-        dirty_slices = [*map(self._make_spectrum_slice, spectrum.split())]
-        clean_slices = [slc for slc in dirty_slices if slc is not None]
-        if len(clean_slices) != len(dirty_slices):
-            loguru.logger.warning("Some spectrum slices are not merged")
-        if not clean_slices:
-            return
+    def merge(self, spectrum: "Spectrum | SpectrumAggregator"):
+        if isinstance(spectrum, Spectrum):
+            dirty_slices = [*map(self._make_spectrum_slice, spectrum.split())]
+            clean_slices = [slc for slc in dirty_slices if slc is not None]
+            if len(clean_slices) != len(dirty_slices):
+                loguru.logger.warning("Some spectrum slices are not merged")
+            if not clean_slices:
+                return
+        else:
+            clean_slices = spectrum.spectrum_slices
 
         self.spectrum_slices.update(clean_slices)
         self._clean_range(
