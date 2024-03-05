@@ -210,7 +210,6 @@ class Calibration:
         hdulist: HDUList,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
-        freq_kwargs: dict = dict(),
     ) -> Spectrum | None:
         frequency = cls.get_observed_frequency(hdulist)
         if frequency is None:
