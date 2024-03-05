@@ -27,13 +27,22 @@ function main() {
         fi
         local pattern=$1; shift
 
+        local mode='multiple arguments'
         if [[ $# == 0 || $1 == "--" ]]; then
-             print_usage_and_exit
+             local mode='single argument'
         fi
-        while [[ $# > 0 && $1 != "--" ]]; do
-            local project=$1; shift
-            local semester=${project%_*}
+        while [[ (${mode} == 'single argument') || (${mode} == 'multiple arguments' && $# > 0 && $1 != "--") ]]; do
+            if [[ ${mode} == 'single argument' ]]; then
+                local project=''
+                local semester=''
+            elif [[ ${mode} == 'multiple arguments' ]]; then
+                local project=$1; shift
+                local semester=${project%_*}
+            fi
             output+=($(ls -d $(echo ${pattern} | sed -e "s/{semester}/${semester}/g" -e "s/{project}/${project}/g") 2>/dev/null))
+            if [[ ${mode} == 'single argument' ]]; then
+                break
+            fi
         done
     done
     echo ${output[@]}
