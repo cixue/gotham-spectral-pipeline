@@ -9,7 +9,19 @@ import loguru
 import numpy
 import pandas
 
-__all__ = ["SDFits"]
+__all__ = [
+    "HDUList",
+    "SDFits",
+]
+
+
+class HDUList(list[astropy.io.fits.PrimaryHDU]):
+
+    def __hash__(self):
+        return hash(id(self))
+
+    def __eq__(self, other):
+        return self is other
 
 
 class FITSFileCache:
@@ -25,7 +37,9 @@ class FITSFileCache:
         if self.path in FITSFileCache.lru_cache:
             FITSFileCache.lru_cache.move_to_end(self.path)
         else:
-            FITSFileCache.lru_cache[self.path] = astropy.io.fits.open(self.path, "readonly")
+            FITSFileCache.lru_cache[self.path] = astropy.io.fits.open(
+                self.path, "readonly"
+            )
         while len(FITSFileCache.lru_cache) > FITSFileCache.max_opened_file:
             FITSFileCache.lru_cache.popitem(last=False)
         return FITSFileCache.lru_cache[self.path]
@@ -200,23 +214,21 @@ class SDFits:
                     )
             return astropy.io.fits.PrimaryHDU(data=data, header=header)
 
-    def get_hdulist_from_rows(
-        self, rows: pandas.DataFrame
-    ) -> list[astropy.io.fits.PrimaryHDU]:
+    def get_hdulist_from_rows(self, rows: pandas.DataFrame) -> HDUList:
         """Get a list of scan data represented by records in the SDFits file.
 
         Args:
             row (pandas.DataFrame): Multiple records in the index file.
 
         Returns:
-            list[astropy.io.fits.PrimaryHDU]: A list of HDU objects containing the scan data.
+            HDUList: A list of HDU objects containing the scan data.
         """
-        return [self.get_hdu_from_row(row) for _, row in rows.iterrows()]
+        return HDUList(self.get_hdu_from_row(row) for _, row in rows.iterrows())
 
-    def get_hdulist(self) -> list[astropy.io.fits.PrimaryHDU]:
+    def get_hdulist(self) -> HDUList:
         """Get all scan data in the SDFits file.
 
         Returns:
-            list[astropy.io.fits.PrimaryHDU]: A list of HDU objects containing all scan data.
+            HDUList: A list of HDU objects containing all scan data.
         """
         return self.get_hdulist_from_rows(self.rows)

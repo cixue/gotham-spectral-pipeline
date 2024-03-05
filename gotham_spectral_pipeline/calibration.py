@@ -1,4 +1,4 @@
-from .sdfits import SDFits
+from .sdfits import HDUList, SDFits
 from .spectrum import Spectrum
 from .utils import datetime_parser, lru_cache
 from .zenith_opacity import ZenithOpacity
@@ -28,7 +28,7 @@ CalOnOffName = typing.Literal["calon", "caloff"]
 SigRefName = typing.Literal["sig", "ref"]
 
 
-class CalOnOffPairedHDUList(dict[CalOnOffName, list[astropy.io.fits.PrimaryHDU]]):
+class CalOnOffPairedHDUList(dict[CalOnOffName, HDUList]):
     T1 = typing.TypeVar("T1")
     T2 = typing.TypeVar("T2")
 
@@ -40,7 +40,7 @@ class CalOnOffPairedHDUList(dict[CalOnOffName, list[astropy.io.fits.PrimaryHDU]]
 
     def get_property(
         self,
-        getter: typing.Callable[[list[astropy.io.fits.PrimaryHDU]], T1],
+        getter: typing.Callable[[HDUList], T1],
         transformer: (
             typing.Callable[[T1], T1] | typing.Callable[[T1], T2]
         ) = lambda x: x,
@@ -84,17 +84,17 @@ class SigRefPairedRows(dict[SigRefName, CalOnOffPairedRows]):
 class Calibration:
 
     @classmethod
-    def get_observed_datetime(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> str:
+    def get_observed_datetime(cls, hdulist: HDUList) -> str:
         raise NotImplementedError()
 
     @classmethod
-    def get_observed_elevation(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> float:
+    def get_observed_elevation(cls, hdulist: HDUList) -> float:
         raise NotImplementedError()
 
     @classmethod
     def get_observed_frequency(
         cls,
-        hdulist: list[astropy.io.fits.PrimaryHDU],
+        hdulist: HDUList,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -103,7 +103,7 @@ class Calibration:
     @classmethod
     def get_corrected_frequency(
         cls,
-        hdulist: list[astropy.io.fits.PrimaryHDU],
+        hdulist: HDUList,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -111,20 +111,18 @@ class Calibration:
 
     @classmethod
     def get_intensity_raw_count(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+        cls, hdulist: HDUList
     ) -> numpy.typing.NDArray[numpy.floating]:
         raise NotImplementedError()
 
     @classmethod
     def get_noise(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU], Tsys: float
+        cls, hdulist: HDUList, Tsys: float
     ) -> numpy.typing.NDArray[numpy.floating]:
         raise NotImplementedError()
 
     @classmethod
-    def get_calibration_temperature(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
-    ) -> float:
+    def get_calibration_temperature(cls, hdulist: HDUList) -> float:
         raise NotImplementedError()
 
     @classmethod
@@ -209,7 +207,7 @@ class Calibration:
     @classmethod
     def get_temperature_correction_factor(
         cls,
-        hdulist: list[astropy.io.fits.PrimaryHDU],
+        hdulist: HDUList,
         zenith_opacity: ZenithOpacity,
         eta_l: float = 0.99,
         freq_kwargs: dict = dict(),
@@ -291,17 +289,17 @@ class PositionSwitchedCalibration(Calibration):
         return paired_up_rows
 
     @classmethod
-    def get_observed_datetime(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> str:
+    def get_observed_datetime(cls, hdulist: HDUList) -> str:
         return hdulist[0].header["DATE-OBS"]
 
     @classmethod
-    def get_observed_elevation(cls, hdulist: list[astropy.io.fits.PrimaryHDU]) -> float:
+    def get_observed_elevation(cls, hdulist: HDUList) -> float:
         return hdulist[0].header["ELEVATIO"]
 
     @classmethod
     def get_observed_frequency(
         cls,
-        hdulist: list[astropy.io.fits.PrimaryHDU],
+        hdulist: HDUList,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
     ) -> numpy.typing.NDArray[numpy.floating] | None:
@@ -322,7 +320,7 @@ class PositionSwitchedCalibration(Calibration):
     @classmethod
     def get_corrected_frequency(
         cls,
-        hdulist: list[astropy.io.fits.PrimaryHDU],
+        hdulist: HDUList,
         loc: typing.Literal["center", "edge"] = "center",
         unit: str = "Hz",
         method: typing.Literal["default", "four_chunks"] = "default",
@@ -347,14 +345,15 @@ class PositionSwitchedCalibration(Calibration):
         return None
 
     @classmethod
+    @lru_cache(maxsize=128)
     def get_intensity_raw_count(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
+        cls, hdulist: HDUList
     ) -> numpy.typing.NDArray[numpy.floating]:
         return hdulist[0].data.squeeze()
 
     @classmethod
     def get_noise(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU], Tsys: float
+        cls, hdulist: HDUList, Tsys: float
     ) -> numpy.typing.NDArray[numpy.floating]:
         frequency_resolution = hdulist[0].header["FREQRES"]
         exposure = hdulist[0].header["EXPOSURE"]
@@ -364,9 +363,7 @@ class PositionSwitchedCalibration(Calibration):
         )
 
     @classmethod
-    def get_calibration_temperature(
-        cls, hdulist: list[astropy.io.fits.PrimaryHDU]
-    ) -> float:
+    def get_calibration_temperature(cls, hdulist: HDUList) -> float:
         return hdulist[0].header["TCAL"]
 
     @classmethod
