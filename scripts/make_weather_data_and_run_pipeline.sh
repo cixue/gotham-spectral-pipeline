@@ -15,11 +15,36 @@ function main() {
     fi
 
     local passed_to_gsp=()
-    while [[ $# > 0 && $1 != "--" ]]; do
-        passed_to_gsp+=("$1"); shift
+    local passed_to_discover_sessions=()
+    local argument_mode='normal'
+    while [[ $# > 0 ]]; do
+        if [[ $1 == --* ]]; then
+            if [[ $1 == '--sdfits' ]]; then
+                local argument_mode='discover_sessions'
+                passed_to_discover_sessions+=("--"); shift
+                continue
+            elif [[ $1 == '--zenith_opacity' ]]; then
+                local argument_mode='zenith_opacity'
+                shift
+                continue
+            else
+                local argument_mode='normal'
+            fi
+        fi
+        if [[ ${argument_mode} == 'normal' ]]; then
+            passed_to_gsp+=("$1"); shift
+        elif [[ ${argument_mode} == 'discover_sessions' ]]; then
+            passed_to_discover_sessions+=("$1"); shift
+        elif [[ ${argument_mode} == 'zenith_opacity' ]]; then
+            if [[ -n ${zenith_opacity_directory} ]]; then
+                echo "Multiple zenith_opacity specified"
+                exit 1
+            fi
+            local zenith_opacity_directory="$1"; shift
+        fi
     done
 
-    sdfits=$(${discover_sessions} "$@")
+    sdfits=$(${discover_sessions} "${passed_to_discover_sessions[@]}")
     if [[ $? != 0 ]]; then
         return
     fi
@@ -27,15 +52,19 @@ function main() {
     for session in ${sdfits[@]}; do
         echo "Working on ${session}"
 
-        echo "Generating CLEO command..."
-        cleo_command=$(${gsp} generate_cleo_command ${session})
-        echo "done!"
-        echo
+        echo ${zenith_opacity_directory}
 
-        echo "Running CLEO"
-        bash -c "mkdir -p data/weather; cd data/weather; ${cleo_command}"
-        echo "done!"
-        echo
+        if [[ -n ${zenith_opacity_directory} ]]; then
+            echo "Generating CLEO command..."
+            cleo_command=$(${gsp} generate_cleo_command ${session})
+            echo "done!"
+            echo
+
+            echo "Running CLEO"
+            bash -c "mkdir -p ${zenith_opacity_directory}; cd ${zenith_opacity_directory}; ${cleo_command}"
+            echo "done!"
+            echo
+        fi
 
         echo "Running calibration pipeline"
         ${gsp} run_pipeline "${passed_to_gsp[@]}" --sdfits ${session}
