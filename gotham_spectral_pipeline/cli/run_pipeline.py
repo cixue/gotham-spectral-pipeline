@@ -198,6 +198,6 @@ def main(args: argparse.Namespace):
         output_directory = args.output_directory
         os.makedirs(output_directory, exist_ok=True)
         output_path = output_directory / prefix
-        spectrum_aggregator[group].get_spectrum().to_npz(output_path)
+        final_spectrum_aggregator.get_spectrum().to_npz(output_path)
 
     log_limiter.log_silence_report()
