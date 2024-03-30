@@ -154,7 +154,6 @@ class Calibration:
         )
         return Tsys
 
-    @typing.overload
     @classmethod
     def get_total_power_spectrum(
         cls,
@@ -163,50 +162,7 @@ class Calibration:
         Tsys: float | None = None,
         ref_calonoffpair: CalOnOffPairedHDUList | None = None,
         freq_kwargs: dict = dict(),
-        *,
-        return_noise_diode_total_power: typing.Literal[False] = ...,
     ) -> Spectrum | None:
-        ...
-
-    @typing.overload
-    @classmethod
-    def get_total_power_spectrum(
-        cls,
-        calonoffpair: CalOnOffPairedHDUList,
-        Tcal: float | None = None,
-        Tsys: float | None = None,
-        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
-        freq_kwargs: dict = dict(),
-        *,
-        return_noise_diode_total_power: typing.Literal[True],
-    ) -> tuple[Spectrum, Spectrum] | None:
-        ...
-
-    @typing.overload
-    @classmethod
-    def get_total_power_spectrum(
-        cls,
-        calonoffpair: CalOnOffPairedHDUList,
-        Tcal: float | None = None,
-        Tsys: float | None = None,
-        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
-        freq_kwargs: dict = dict(),
-        *,
-        return_noise_diode_total_power: bool = False,
-    ) -> Spectrum | tuple[Spectrum, Spectrum] | None:
-        ...
-
-    @classmethod
-    def get_total_power_spectrum(
-        cls,
-        calonoffpair: CalOnOffPairedHDUList,
-        Tcal: float | None = None,
-        Tsys: float | None = None,
-        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
-        freq_kwargs: dict = dict(),
-        *,
-        return_noise_diode_total_power: bool = False,
-    ) -> Spectrum | tuple[Spectrum, Spectrum] | None:
         frequency = calonoffpair.get_property(
             lambda hdulist: cls.get_corrected_frequency(hdulist, **freq_kwargs),
             transformer=lambda ndarray: ndarray.tobytes(),
@@ -244,23 +200,9 @@ class Calibration:
 
         flag = numpy.zeros_like(intensity, dtype=int)
 
-        if return_noise_diode_total_power:
-            sig_noise_diode = cls.get_intensity_raw_count(
-                calonoffpair["calon"]
-            ) - cls.get_intensity_raw_count(calonoffpair["caloff"])
-            noise_diode_intensity = Tsys * sig_noise_diode / ref
-            return Spectrum(
-                intensity=intensity, frequency=frequency, noise=noise, flag=flag
-            ), Spectrum(
-                intensity=noise_diode_intensity,
-                frequency=frequency,
-                noise=2 * noise,
-                flag=flag,
-            )
-        else:
-            return Spectrum(
-                intensity=intensity, frequency=frequency, noise=noise, flag=flag
-            )
+        return Spectrum(
+            intensity=intensity, frequency=frequency, noise=noise, flag=flag
+        )
 
     @classmethod
     def get_temperature_correction_factor(
@@ -473,10 +415,7 @@ class PositionSwitchedCalibration(Calibration):
 
     @classmethod
     def get_calibrated_spectrum(
-        cls,
-        sigrefpair: SigRefPairedHDUList,
-        freq_kwargs: dict = dict(),
-        compute_noise_diode: bool = False,
+        cls, sigrefpair: SigRefPairedHDUList, freq_kwargs: dict = dict()
     ) -> tuple[Spectrum | None, dict]:
         metadata: dict[str, typing.Any] = dict()
 
@@ -491,61 +430,27 @@ class PositionSwitchedCalibration(Calibration):
         metadata["Tcal"] = Tcal
         metadata["Tsys"] = Tsys
 
-        if compute_noise_diode:
-            result_with_noise_diode = cls.get_total_power_spectrum(
-                ref_calonoffpair,
-                Tcal=Tcal,
-                Tsys=Tsys,
-                ref_calonoffpair=ref_calonoffpair,
-                freq_kwargs=freq_kwargs,
-                return_noise_diode_total_power=True,
-            )
-            if result_with_noise_diode is None:
-                return None, metadata
-            ref_total_power, ref_noise_diode_total_power = result_with_noise_diode
-            metadata["ref_total_power"] = ref_total_power
-            metadata["ref_noise_diode_total_power"] = ref_noise_diode_total_power
-        else:
-            ref_total_power_result = cls.get_total_power_spectrum(
-                ref_calonoffpair,
-                Tcal=Tcal,
-                Tsys=Tsys,
-                ref_calonoffpair=ref_calonoffpair,
-                freq_kwargs=freq_kwargs,
-                return_noise_diode_total_power=False,
-            )
-            if ref_total_power_result is None:
-                return None, metadata
-            ref_total_power = ref_total_power_result
-            metadata["ref_total_power"] = ref_total_power
+        ref_total_power = cls.get_total_power_spectrum(
+            ref_calonoffpair,
+            Tcal=Tcal,
+            Tsys=Tsys,
+            ref_calonoffpair=ref_calonoffpair,
+            freq_kwargs=freq_kwargs,
+        )
+        if ref_total_power is None:
+            return None, metadata
+        metadata["ref_total_power"] = ref_total_power
 
-        if compute_noise_diode:
-            result_with_noise_diode = cls.get_total_power_spectrum(
-                sig_calonoffpair,
-                Tcal=Tcal,
-                Tsys=Tsys,
-                ref_calonoffpair=ref_calonoffpair,
-                freq_kwargs=freq_kwargs,
-                return_noise_diode_total_power=True,
-            )
-            if result_with_noise_diode is None:
-                return None, metadata
-            sig_total_power, sig_noise_diode_total_power = result_with_noise_diode
-            metadata["sig_total_power"] = sig_total_power
-            metadata["sig_noise_diode_total_power"] = sig_noise_diode_total_power
-        else:
-            sig_total_power_result = cls.get_total_power_spectrum(
-                sig_calonoffpair,
-                Tcal=Tcal,
-                Tsys=Tsys,
-                ref_calonoffpair=ref_calonoffpair,
-                freq_kwargs=freq_kwargs,
-                return_noise_diode_total_power=False,
-            )
-            if sig_total_power_result is None:
-                return None, metadata
-            sig_total_power = sig_total_power_result
-            metadata["sig_total_power"] = sig_total_power
+        sig_total_power = cls.get_total_power_spectrum(
+            sig_calonoffpair,
+            Tcal=Tcal,
+            Tsys=Tsys,
+            ref_calonoffpair=ref_calonoffpair,
+            freq_kwargs=freq_kwargs,
+        )
+        if sig_total_power is None:
+            return None, metadata
+        metadata["sig_total_power"] = sig_total_power
 
         return sig_total_power - ref_total_power, metadata
 
