@@ -413,11 +413,54 @@ class PositionSwitchedCalibration(Calibration):
 
         return False
 
+    @typing.overload
     @classmethod
     def get_calibrated_spectrum(
-        cls, sigrefpair: SigRefPairedHDUList, freq_kwargs: dict = dict()
+        cls,
+        sigrefpair: SigRefPairedHDUList,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: typing.Literal[False] = ...,
+    ) -> Spectrum | None:
+        ...
+
+    @typing.overload
+    @classmethod
+    def get_calibrated_spectrum(
+        cls,
+        sigrefpair: SigRefPairedHDUList,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: typing.Literal[True],
     ) -> tuple[Spectrum | None, dict]:
+        ...
+
+    @typing.overload
+    @classmethod
+    def get_calibrated_spectrum(
+        cls,
+        sigrefpair: SigRefPairedHDUList,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: bool = False,
+    ) -> (Spectrum | None) | tuple[Spectrum | None, dict]:
+        ...
+
+    @classmethod
+    def get_calibrated_spectrum(
+        cls,
+        sigrefpair: SigRefPairedHDUList,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: bool = False,
+    ) -> (Spectrum | None) | tuple[Spectrum | None, dict]:
         metadata: dict[str, typing.Any] = dict()
+
+        def with_metadata(result: Spectrum | None):
+            if return_metadata:
+                return result, metadata
+            else:
+                return result
 
         sig_calonoffpair = sigrefpair["sig"]
         ref_calonoffpair = sigrefpair["ref"]
@@ -438,7 +481,7 @@ class PositionSwitchedCalibration(Calibration):
             freq_kwargs=freq_kwargs,
         )
         if ref_total_power is None:
-            return None, metadata
+            return with_metadata(None)
         metadata["ref_total_power"] = ref_total_power
 
         sig_total_power = cls.get_total_power_spectrum(
@@ -449,10 +492,10 @@ class PositionSwitchedCalibration(Calibration):
             freq_kwargs=freq_kwargs,
         )
         if sig_total_power is None:
-            return None, metadata
+            return with_metadata(None)
         metadata["sig_total_power"] = sig_total_power
 
-        return sig_total_power - ref_total_power, metadata
+        return with_metadata(sig_total_power - ref_total_power)
 
 
 class PointingCalibration(Calibration):

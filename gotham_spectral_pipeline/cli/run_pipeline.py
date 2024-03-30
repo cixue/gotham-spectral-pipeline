@@ -96,7 +96,7 @@ def main(args: argparse.Namespace):
                 spectrum,
                 spectrum_metadata,
             ) = PositionSwitchedCalibration.get_calibrated_spectrum(
-                sigrefpair, freq_kwargs=dict(unit="Hz")
+                sigrefpair, freq_kwargs=dict(unit="Hz"), return_metadata=True
             )
             if spectrum is None:
                 num_integration_dropped["No calibrated spectrum returned"] += 1
