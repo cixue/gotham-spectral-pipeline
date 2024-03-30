@@ -360,7 +360,51 @@ class Spectrum:
         if self.flag is not None:
             self.flag = self.flag[sorted_idx]
 
-    def __add__(self, other: "Spectrum") -> "Spectrum":
+    def __neg__(self) -> "Spectrum":
+        if self.frequency is None:
+            frequency = None
+        else:
+            frequency = self.frequency
+
+        intensity = -self.intensity
+
+        if self.noise is None:
+            noise = None
+        else:
+            noise = self.noise
+
+        if self.flag is None:
+            flag = None
+        else:
+            flag = self.flag
+
+        return Spectrum(
+            intensity=intensity, frequency=frequency, noise=noise, flag=flag
+        )
+
+    def __add__(self, other: "int | float | Spectrum") -> "Spectrum":
+        if isinstance(other, int) or isinstance(other, float):
+            if self.frequency is None:
+                frequency = None
+            else:
+                frequency = self.frequency
+
+            intensity = self.intensity + other
+
+            if self.noise is None:
+                noise = None
+            else:
+                noise = self.noise
+
+            if self.flag is None:
+                flag = None
+            else:
+                flag = self.flag
+
+            return Spectrum(
+                intensity=intensity, frequency=frequency, noise=noise, flag=flag
+            )
+
         if isinstance(other, Spectrum):
             intensity = self.intensity + other.intensity
 
@@ -396,41 +440,14 @@ class Spectrum:
 
         return NotImplemented
 
-    def __sub__(self, other: "Spectrum") -> "Spectrum":
-        if isinstance(other, Spectrum):
-            intensity = self.intensity - other.intensity
+    def __radd__(self, other: int | float) -> "Spectrum":
+        return self + other
 
-            # Assume both spectra have the same frequency and use any one of them. Prefer the one of the left operand.
-            if self.frequency is not None:
-                frequency = self.frequency
-            elif other.frequency is not None:
-                frequency = other.frequency
-            else:
-                frequency = None
+    def __sub__(self, other: "int | float | Spectrum") -> "Spectrum":
+        return self + (-other)
 
-            if self.noise is not None and other.noise is not None:
-                noise = numpy.sqrt(numpy.square(self.noise) + numpy.square(other.noise))
-            elif self.noise is not None:
-                noise = self.noise
-            elif other.noise is not None:
-                noise = other.noise
-            else:
-                noise = None
-
-            if self.flag is not None and other.flag is not None:
-                flag = self.flag | other.flag
-            elif self.flag is not None:
-                flag = self.flag
-            elif other.flag is not None:
-                flag = other.flag
-            else:
-                flag = None
-
-            return Spectrum(
-                intensity=intensity, frequency=frequency, noise=noise, flag=flag
-            )
-
-        return NotImplemented
+    def __rsub__(self, other: int | float) -> "Spectrum":
+        return -self + other
 
     def __mul__(self, other: "int | float | Spectrum") -> "Spectrum":
         if isinstance(other, int) or isinstance(other, float):
