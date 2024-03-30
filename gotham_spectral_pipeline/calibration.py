@@ -154,6 +154,7 @@ class Calibration:
         )
         return Tsys
 
+    @typing.overload
     @classmethod
     def get_total_power_spectrum(
         cls,
@@ -162,47 +163,110 @@ class Calibration:
         Tsys: float | None = None,
         ref_calonoffpair: CalOnOffPairedHDUList | None = None,
         freq_kwargs: dict = dict(),
+        *,
+        return_metadata: typing.Literal[False] = ...,
     ) -> Spectrum | None:
+        ...
+
+    @typing.overload
+    @classmethod
+    def get_total_power_spectrum(
+        cls,
+        calonoffpair: CalOnOffPairedHDUList,
+        Tcal: float | None = None,
+        Tsys: float | None = None,
+        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: typing.Literal[True],
+    ) -> tuple[Spectrum | None, dict]:
+        ...
+
+    @typing.overload
+    @classmethod
+    def get_total_power_spectrum(
+        cls,
+        calonoffpair: CalOnOffPairedHDUList,
+        Tcal: float | None = None,
+        Tsys: float | None = None,
+        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: bool = False,
+    ) -> (Spectrum | None) | tuple[Spectrum | None, dict]:
+        ...
+
+    @classmethod
+    def get_total_power_spectrum(
+        cls,
+        calonoffpair: CalOnOffPairedHDUList,
+        Tcal: float | None = None,
+        Tsys: float | None = None,
+        ref_calonoffpair: CalOnOffPairedHDUList | None = None,
+        freq_kwargs: dict = dict(),
+        *,
+        return_metadata: bool = False,
+    ) -> (Spectrum | None) | tuple[Spectrum | None, dict]:
         frequency = calonoffpair.get_property(
             lambda hdulist: cls.get_corrected_frequency(hdulist, **freq_kwargs),
             transformer=lambda ndarray: ndarray.tobytes(),
             property_name="Corrected frequency grid",
         )
+        metadata: dict[str, typing.Any] = dict()
+
+        def with_metadata(result: Spectrum | None):
+            if return_metadata:
+                return result, metadata
+            else:
+                return result
+
         if frequency is None:
-            return None
+            return with_metadata(None)
 
         if Tcal is None:
             Tcal = calonoffpair.get_property(
                 getter=cls.get_calibration_temperature, property_name="Tcal"
             )
+        metadata["Tcal"] = Tcal
 
         if Tsys is None:
             Tsys = cls.get_system_temperature(
                 calonoffpair, Tcal=Tcal, trim_fraction=0.1
             )
+        metadata["Tsys"] = Tsys
 
-        sig = 0.5 * (
-            cls.get_intensity_raw_count(calonoffpair["calon"])
-            + cls.get_intensity_raw_count(calonoffpair["caloff"])
-        )
+        sig_calon_raw = cls.get_intensity_raw_count(calonoffpair["calon"])
+        sig_caloff_raw = cls.get_intensity_raw_count(calonoffpair["caloff"])
         if ref_calonoffpair is None:
-            ref = sig
+            countPerK = 0.5 * (sig_calon_raw + sig_caloff_raw) / Tsys
         else:
-            ref = 0.5 * (
-                cls.get_intensity_raw_count(ref_calonoffpair["calon"])
-                + cls.get_intensity_raw_count(ref_calonoffpair["caloff"])
+            countPerK = (
+                0.5
+                * (
+                    cls.get_intensity_raw_count(ref_calonoffpair["calon"])
+                    + cls.get_intensity_raw_count(ref_calonoffpair["caloff"])
+                )
+                / Tsys
             )
-        intensity = Tsys * sig / ref - 0.5 * Tcal
-
-        noise_caloff = cls.get_noise(calonoffpair["caloff"], Tsys)
         noise_calon = cls.get_noise(calonoffpair["calon"], Tsys)
-        noise = 0.5 * numpy.sqrt(numpy.square(noise_caloff) + numpy.square(noise_calon))
+        noise_caloff = cls.get_noise(calonoffpair["caloff"], Tsys)
+        flag = numpy.zeros_like(frequency, dtype=int)
 
-        flag = numpy.zeros_like(intensity, dtype=int)
-
-        return Spectrum(
-            intensity=intensity, frequency=frequency, noise=noise, flag=flag
+        metadata["calon"] = sig_calon = Spectrum(
+            intensity=sig_calon_raw / countPerK,
+            frequency=frequency,
+            noise=noise_calon,
+            flag=flag,
         )
+        metadata["caloff"] = sig_caloff = Spectrum(
+            intensity=sig_caloff_raw / countPerK,
+            frequency=frequency,
+            noise=noise_caloff,
+            flag=flag,
+        )
+
+        sig = 0.5 * (sig_calon + sig_caloff) - 0.5 * Tcal
+        return with_metadata(sig)
 
     @classmethod
     def get_temperature_correction_factor(
@@ -473,27 +537,33 @@ class PositionSwitchedCalibration(Calibration):
         metadata["Tcal"] = Tcal
         metadata["Tsys"] = Tsys
 
-        ref_total_power = cls.get_total_power_spectrum(
+        ref_total_power, ref_metadata = cls.get_total_power_spectrum(
             ref_calonoffpair,
             Tcal=Tcal,
             Tsys=Tsys,
             ref_calonoffpair=ref_calonoffpair,
             freq_kwargs=freq_kwargs,
+            return_metadata=True,
         )
         if ref_total_power is None:
             return with_metadata(None)
         metadata["ref_total_power"] = ref_total_power
+        metadata["ref_calon"] = ref_metadata["calon"]
+        metadata["ref_caloff"] = ref_metadata["caloff"]
 
-        sig_total_power = cls.get_total_power_spectrum(
+        sig_total_power, sig_metadata = cls.get_total_power_spectrum(
             sig_calonoffpair,
             Tcal=Tcal,
             Tsys=Tsys,
             ref_calonoffpair=ref_calonoffpair,
             freq_kwargs=freq_kwargs,
+            return_metadata=True,
         )
         if sig_total_power is None:
             return with_metadata(None)
         metadata["sig_total_power"] = sig_total_power
+        metadata["sig_calon"] = sig_metadata["calon"]
+        metadata["sig_caloff"] = sig_metadata["caloff"]
 
         return with_metadata(sig_total_power - ref_total_power)
 
