@@ -1058,7 +1058,7 @@ class SpectrumAggregator:
         ):
             if spectrum_slice.start > stop:
                 break
-            if not grouped_slices or spectrum_slice.stop < grouped_slices[-1][-1].start:
+            if not grouped_slices or spectrum_slice.start > grouped_slices[-1][-1].stop:
                 grouped_slices.append([])
             grouped_slices[-1].append(spectrum_slice)
 
