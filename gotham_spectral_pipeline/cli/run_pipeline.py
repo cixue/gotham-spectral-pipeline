@@ -34,6 +34,7 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--grouped_by_sampler", action="store_true")
     parser.add_argument("--exit_if_exist", action="store_true")
 
+    parser.add_argument("--flag_head_tail_channel_number", type=int, default=4096)
     parser.add_argument("--max_rfi_channel", type=int, default=256)
 
     parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
@@ -114,7 +115,7 @@ def main(args: argparse.Namespace):
             assert spectrum.frequency is not None
 
             spectrum.flag_frequency_domain_rfi()
-            spectrum.flag_head_tail(nchannel=4096)
+            spectrum.flag_head_tail(nchannel=args.flag_head_tail_channel_number)
 
             assert spectrum.flag is not None
             if args.max_rfi_channel > 0:
