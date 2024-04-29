@@ -692,7 +692,7 @@ class Spectrum:
         )
         if is_rfi is None:
             return
-        self.flag[is_rfi] |= Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value  # type: ignore
+        self.flag[is_rfi] |= Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
@@ -710,8 +710,8 @@ class Spectrum:
             nchannel = int(self.intensity.size * fraction)
 
         if nchannel > 0:
-            self.flag[:nchannel] |= Spectrum.FlagReason.CHUNK_EDGES.value  # type: ignore
-            self.flag[-nchannel:] |= Spectrum.FlagReason.CHUNK_EDGES.value  # type: ignore
+            self.flag[:nchannel] |= Spectrum.FlagReason.CHUNK_EDGES.value
+            self.flag[-nchannel:] |= Spectrum.FlagReason.CHUNK_EDGES.value
 
     def flag_nan(self):
         if self.flag is None:
