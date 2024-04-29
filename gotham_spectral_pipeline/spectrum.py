@@ -299,6 +299,7 @@ class Spectrum:
         NAN = 1 << 0
         CHUNK_EDGES = 1 << 1
         FREQUENCY_DOMAIN_RFI = 1 << 2
+        TIME_DOMAIN_RFI = 1 << 3
 
     def __init__(
         self,
@@ -679,6 +680,28 @@ class Spectrum:
         for i in range(width):
             res[i : size + i][is_signal] = True
         return res
+
+    def flag_time_domain_rfi(
+        self,
+        spectrum_metadata: dict,
+        *,
+        nadjacent: int = 63,
+        alpha: float = 1e-6,
+        chunk_size: int = 1024,
+    ):
+        if self.flag is None:
+            self._add_flag_array()
+        assert self.flag is not None
+
+        temporal_difference = (
+            spectrum_metadata["sig_calon"] - spectrum_metadata["sig_caloff"]
+        ) - (spectrum_metadata["ref_calon"] - spectrum_metadata["ref_caloff"])
+        is_rfi = temporal_difference.detect_signal(
+            nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
+        )
+        if is_rfi is None:
+            return
+        self.flag[is_rfi] |= Spectrum.FlagReason.TIME_DOMAIN_RFI.value
 
     def flag_frequency_domain_rfi(
         self, *, nadjacent: int = 3, alpha: float = 1e-6, chunk_size: int = 1024

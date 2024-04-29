@@ -114,6 +114,7 @@ def main(args: argparse.Namespace):
 
             assert spectrum.frequency is not None
 
+            spectrum.flag_time_domain_rfi(spectrum_metadata)
             spectrum.flag_frequency_domain_rfi()
             spectrum.flag_head_tail(nchannel=args.flag_head_tail_channel_number)
 
@@ -124,7 +125,10 @@ def main(args: argparse.Namespace):
                         spectrum.flag[
                             (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
                         ]
-                        & Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
+                        & (
+                            Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
+                            | Spectrum.FlagReason.TIME_DOMAIN_RFI.value
+                        )
                     )
                     != 0
                 ).sum()
