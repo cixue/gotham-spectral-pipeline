@@ -155,7 +155,7 @@ def main(args: argparse.Namespace):
                 intensity=spectrum.intensity - baseline(spectrum.frequency),
                 frequency=spectrum.frequency,
                 noise=spectrum.noise,
-                flag=spectrum.flagged,
+                flag=spectrum.flag,
             )
 
             if zenith_opacity is not None:
