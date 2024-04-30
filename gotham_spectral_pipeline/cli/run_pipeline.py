@@ -9,7 +9,7 @@ import typing
 import loguru
 import tqdm  # type: ignore
 
-from .. import PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
+from .. import GbtTsysLookupTable, PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
 from ..logging import capture_builtin_warnings, LogLimiter
 
 
@@ -37,8 +37,19 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--flag_head_tail_channel_number", type=int, default=4096)
     parser.add_argument("--max_rfi_channel", type=int, default=256)
 
-    parser.add_argument("--Tsys_min_threshold", type=float, default=0.0)
-    parser.add_argument("--Tsys_max_threshold", type=float, default="inf")
+    parser.add_argument("--Tsys_dynamic_threshold", action="store_true")
+    parser.add_argument(
+        "--Tsys_min_threshold",
+        type=float,
+        default=0.0,
+        help="If Tsys_dynamic_threshold is not enabled, it represents the absolute value used for the minimum threshold. If Tsys_dynamic_threshold is enabled, it represents the multiplier for the minimum threshold.",
+    )
+    parser.add_argument(
+        "--Tsys_max_threshold",
+        type=float,
+        default="inf",
+        help="If Tsys_dynamic_threshold is not enabled, it represents the absolute value used for the maximum threshold. If Tsys_dynamic_threshold is enabled, it represents the multiplier for the maximum threshold.",
+    )
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
 
 
@@ -103,11 +114,21 @@ def main(args: argparse.Namespace):
                 num_integration_dropped["No calibrated spectrum returned"] += 1
                 continue
 
+            Tsys_min_threshold = args.Tsys_min_threshold
+            Tsys_max_threshold = args.Tsys_max_threshold
+            if args.Tsys_dynamic_threshold:
+                central_frequency = sigrefpair["sig"]["caloff"][0].header["CENTFREQ"]
+                dynamic_threshold = GbtTsysLookupTable().get_threshold(
+                    central_frequency
+                )
+                Tsys_min_threshold *= dynamic_threshold
+                Tsys_min_threshold *= dynamic_threshold
+
             Tsys_stats[group]["total"] += 1
-            if not spectrum_metadata["Tsys"] > args.Tsys_min_threshold:
+            if not spectrum_metadata["Tsys"] > Tsys_min_threshold:
                 num_integration_dropped["Tsys exceeds min threshold"] += 1
                 continue
-            if not spectrum_metadata["Tsys"] < args.Tsys_max_threshold:
+            if not spectrum_metadata["Tsys"] < Tsys_max_threshold:
                 num_integration_dropped["Tsys exceeds max threshold"] += 1
                 continue
             Tsys_stats[group]["succeed"] += 1
