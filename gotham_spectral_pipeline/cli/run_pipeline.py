@@ -3,6 +3,7 @@ import collections
 import os
 import pathlib
 import pprint
+import sys
 import traceback
 import typing
 
@@ -66,6 +67,14 @@ def main(args: argparse.Namespace):
 
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
+
+    quoted_arguments = [
+        f"'{argument}'" if " " in argument else argument for argument in sys.argv
+    ]
+    loguru.logger.info(
+        f"Pipeline started with the following options:\n{pprint.pformat(vars(args), sort_dicts=False)}\n"
+        f"with the following command:\n{' '.join(quoted_arguments)}"
+    )
 
     if args.filter is None:
         filtered_rows = sdfits.rows
