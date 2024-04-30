@@ -25,7 +25,7 @@ def capture_builtin_warnings():
 class LogLimiter:
     _rate_setting: dict[str, float]
     _last_emit: dict[tuple[str, str], datetime.datetime]
-    _silenced: dict[tuple[str, str], int]
+    _stats: dict[tuple[str, str], dict[typing.Literal["silenced", "emitted"], int]]
     _regex_number_matcher: re.Pattern
     _do_not_filter: bool
 
@@ -47,7 +47,7 @@ class LogLimiter:
         self._rate_setting = {level: 0 for level in all_levels}
         self._rate_setting.update(rate_setting)
         self._last_emit = {}
-        self._silenced = {}
+        self._stats = {}
         self._regex_number_matcher = re.compile(r"[+-]?\d+")
         self._do_not_filter = False
 
@@ -83,21 +83,28 @@ class LogLimiter:
         message = self._regex_number_matcher.sub("<number>", record["message"])
         key = (level, message)
         time = record["time"]
+        if key not in self._stats:
+            self._stats[key] = {}
+            self._stats[key]["emitted"] = 0
+            self._stats[key]["silenced"] = 0
+
         if (
             key not in self._last_emit
             or (time - self._last_emit[key]).total_seconds() > self._rate_setting[level]
         ):
             self._last_emit[key] = time
-            self._silenced[key] = 0
+            self._stats[key]["emitted"] += 1
             return True
         else:
-            self._silenced[key] += 1
+            self._stats[key]["silenced"] += 1
             return False
 
     def log_silence_report(self):
         self._do_not_filter = True
-        for (level, message), silenced in self._silenced.items():
+        for (level, message), stats in self._stats.items():
             loguru.logger.info(
-                f"Silenced ({level = }, {message = !r}) for {silenced} times."
+                f"Stats for ({level = }, {message = !r}) {stats['silenced']}.\n"
+                f"Silenced {stats['silenced']} times. Emitted {stats['emitted']} times.\n"
+                f"Total {stats['silenced'] + stats['emitted']} times."
             )
         self._do_not_filter = False
