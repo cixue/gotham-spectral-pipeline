@@ -103,7 +103,7 @@ def main(args: argparse.Namespace):
         all_groups.add(group)
 
         debug_indices = {
-            f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"])
+            f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"].iloc[0])
             for sigref in paired_row
             for calonoff in paired_row[sigref]
         }
