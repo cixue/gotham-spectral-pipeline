@@ -277,14 +277,8 @@ def _compute_residual(
     noise: numpy.typing.NDArray[numpy.floating],
     half_moving_window: int,
 ):
-    return numpy.sqrt(
-        numpy.nanmean(
-            _centered_move_mean(
-                intensity / noise,
-                half_moving_window,
-            )
-            ** 2
-        )
+    return numpy.max(
+        numpy.fabs(_centered_move_mean(intensity / noise, half_moving_window))
     )
 
 
