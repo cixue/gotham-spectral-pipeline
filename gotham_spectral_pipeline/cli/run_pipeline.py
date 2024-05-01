@@ -126,7 +126,7 @@ def main(args: argparse.Namespace):
             Tsys_min_threshold = args.Tsys_min_threshold
             Tsys_max_threshold = args.Tsys_max_threshold
             if args.Tsys_dynamic_threshold:
-                central_frequency = sigrefpair["sig"]["caloff"][0].header["CENTFREQ"]
+                central_frequency = sigrefpair["sig"]["caloff"][0].header["OBSFREQ"]
                 dynamic_threshold = GbtTsysLookupTable().get_threshold(
                     central_frequency
                 )
@@ -218,7 +218,12 @@ def main(args: argparse.Namespace):
 
     final_spectrum_aggregator: SpectrumAggregator | None = None
     for group in sorted(all_groups):
-        Tsys_success_rate = Tsys_stats[group]["succeed"] / Tsys_stats[group]["total"]
+        if Tsys_stats[group]["total"] == 0:
+            Tsys_success_rate = 0.0
+        else:
+            Tsys_success_rate = (
+                Tsys_stats[group]["succeed"] / Tsys_stats[group]["total"]
+            )
         if Tsys_success_rate >= args.Tsys_min_success_rate:
             if final_spectrum_aggregator is None:
                 final_spectrum_aggregator = spectrum_aggregator[group]
