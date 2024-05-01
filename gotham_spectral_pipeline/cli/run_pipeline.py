@@ -131,7 +131,7 @@ def main(args: argparse.Namespace):
                     central_frequency
                 )
                 Tsys_min_threshold *= dynamic_threshold
-                Tsys_min_threshold *= dynamic_threshold
+                Tsys_max_threshold *= dynamic_threshold
 
             Tsys_stats[group]["total"] += 1
             if not spectrum_metadata["Tsys"] > Tsys_min_threshold:
