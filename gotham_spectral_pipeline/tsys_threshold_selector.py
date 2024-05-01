@@ -16,14 +16,14 @@ class TsysLookupTable(TsysThresholdSelector):
     # Lookup table is a list of 3-tuple where the elements are
     # minimum frequency, maximum frequency, and system temperature.
     lookup_table: list[tuple[float, float, float]]
-    default: float | None
+    default: float | str | None
     reduce: typing.Callable[[list[float]], float] | None
 
     def __init__(
         self,
         lookup_table: list[tuple[float, float, float]],
         *,
-        default: float | None = None,
+        default: float | str | None = None,
         reduce: typing.Callable[[list[float]], float] | None = None,
     ):
         self.lookup_table = lookup_table
@@ -37,7 +37,15 @@ class TsysLookupTable(TsysThresholdSelector):
             if min_freq <= frequency <= max_freq
         ]
         if not values:
-            return self.default
+            if not isinstance(self.default, str):
+                return self.default
+            if self.default == "closest":
+                values_with_distance = [
+                    (value, min(abs(frequency - min_freq), abs(frequency - max_freq)))
+                    for min_freq, max_freq, value in self.lookup_table
+                ]
+                return min(values_with_distance, key=lambda x: x[1])[0]
+            raise RuntimeError(f"default = {self.default} is not supported.")
         if len(values) == 1:
             return values[0]
         if self.reduce is None:
@@ -55,7 +63,7 @@ class GbtTsysLookupTable(TsysLookupTable):
     def __init__(
         self,
         *,
-        default: float | None = None,
+        default: float | str | None = "closest",
         reduce: typing.Callable[[list[float]], float] | None = max,
     ):
         super().__init__(
