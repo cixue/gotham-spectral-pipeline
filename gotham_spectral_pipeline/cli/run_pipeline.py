@@ -225,10 +225,11 @@ def main(args: argparse.Namespace):
                 Tsys_stats[group]["succeed"] / Tsys_stats[group]["total"]
             )
         if Tsys_success_rate >= args.Tsys_min_success_rate:
-            if final_spectrum_aggregator is None:
-                final_spectrum_aggregator = spectrum_aggregator[group]
-            else:
-                final_spectrum_aggregator.merge(spectrum_aggregator[group])
+            if group in spectrum_aggregator:
+                if final_spectrum_aggregator is None:
+                    final_spectrum_aggregator = spectrum_aggregator[group]
+                else:
+                    final_spectrum_aggregator.merge(spectrum_aggregator[group])
         else:
             loguru.logger.info(
                 f"Dropped integrations in {group = } since success rate = {Tsys_success_rate} < required minimum success rate = {args.Tsys_min_success_rate}"

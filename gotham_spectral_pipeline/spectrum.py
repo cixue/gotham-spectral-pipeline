@@ -1140,6 +1140,9 @@ class SpectrumAggregator:
         else:
             clean_slices = spectrum.spectrum_slices
 
+        if not clean_slices:
+            return
+
         self.spectrum_slices.update(clean_slices)
         self._clean_range(
             start=clean_slices[0].start,
