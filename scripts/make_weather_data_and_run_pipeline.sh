@@ -52,8 +52,6 @@ function main() {
     for session in ${sdfits[@]}; do
         echo "Working on ${session}"
 
-        echo ${zenith_opacity_directory}
-
         if [[ -n ${zenith_opacity_directory} ]]; then
             echo "Generating CLEO command..."
             cleo_command=$(${gsp} generate_cleo_command ${session})
