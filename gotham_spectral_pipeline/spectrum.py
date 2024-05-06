@@ -1070,14 +1070,17 @@ class SpectrumAggregator:
             self.spectrum_slices.bisect_key_left(start) - 1, 0
         )
         grouped_slices: list[list[SpectrumAggregator.SpectrumSlice]] = []
+        last_group_stop_max = -1
         for spectrum_slice in self.spectrum_slices.islice(
             start=first_slice_before_start
         ):
             if spectrum_slice.start > stop:
                 break
-            if not grouped_slices or spectrum_slice.start > grouped_slices[-1][-1].stop:
+            if spectrum_slice.start > last_group_stop_max:
                 grouped_slices.append([])
+                last_group_stop_max = -1
             grouped_slices[-1].append(spectrum_slice)
+            last_group_stop_max = max(last_group_stop_max, spectrum_slice.stop)
 
         for slice_group in grouped_slices:
             if len(slice_group) == 1:
