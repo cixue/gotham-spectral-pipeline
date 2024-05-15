@@ -12,6 +12,7 @@ import loguru
 import numpy
 import numpy.polynomial.polynomial as poly
 import numpy.typing
+import scipy.interpolate  # type: ignore
 import scipy.special  # type: ignore
 from sortedcontainers import SortedList  # type: ignore
 
@@ -1021,24 +1022,28 @@ class SpectrumAggregator:
         )
 
         frequency = self.transformer.forward(numpy.arange(start, stop))
-        intensity = numpy.interp(
-            frequency,
+        intensity = scipy.interpolate.interp1d(
             spectrum.frequency,
             spectrum.intensity,
-            left=0.0,
-            right=0.0,
-        )
+            kind="nearest",
+            copy=False,
+            bounds_error=False,
+            fill_value=0.0,
+            assume_sorted=True,
+        )(frequency)
 
         if self.noise_weighted or self.compute_noise:
             assert spectrum.noise is not None
             variance = numpy.square(
-                numpy.interp(
-                    frequency,
+                scipy.interpolate.interp1d(
                     spectrum.frequency,
                     spectrum.noise,
-                    left=numpy.inf,
-                    right=numpy.inf,
-                )
+                    kind="nearest",
+                    copy=False,
+                    bounds_error=False,
+                    fill_value=numpy.inf,
+                    assume_sorted=True,
+                )(frequency)
             )
         else:
             variance = None
