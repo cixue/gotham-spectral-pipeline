@@ -25,7 +25,7 @@ function main() {
                 continue
             elif [[ $1 == '--zenith_opacity' ]]; then
                 local argument_mode='zenith_opacity'
-                shift
+                passed_to_gsp+=("$1"); shift
                 continue
             else
                 local argument_mode='normal'
@@ -40,7 +40,8 @@ function main() {
                 echo "Multiple zenith_opacity specified"
                 exit 1
             fi
-            local zenith_opacity_directory="$1"; shift
+            local zenith_opacity_directory="$1"
+            passed_to_gsp+=("$1"); shift
         fi
     done
 
