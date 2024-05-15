@@ -1058,13 +1058,17 @@ class SpectrumAggregator:
 
         return spectrum_slice
 
-    def _clean_range(self, start: int | None = None, stop: int | None = None):
+    def _clean_slices(
+        self,
+        new_spectrum_slices: list[SpectrumSlice] | None = None,
+        owned: bool = False,
+    ):
         if not self.spectrum_slices:
             return
-        if start is None:
-            start = self.spectrum_slices[0].start
-        if stop is None:
-            stop = self.spectrum_slices[-1].stop
+        if new_spectrum_slices is None:
+            new_spectrum_slices = self.spectrum_slices
+        start = new_spectrum_slices[0].start
+        stop = new_spectrum_slices[-1].stop
 
         first_slice_before_start = max(
             self.spectrum_slices.bisect_key_left(start) - 1, 0
@@ -1083,7 +1087,9 @@ class SpectrumAggregator:
             last_group_stop_max = max(last_group_stop_max, spectrum_slice.stop)
 
         for slice_group in grouped_slices:
-            if len(slice_group) == 1:
+            if len(slice_group) == 1 and (
+                owned or slice_group[0] not in new_spectrum_slices
+            ):
                 continue
 
             min_start = min(slc.start for slc in slice_group)
@@ -1091,7 +1097,9 @@ class SpectrumAggregator:
             eligible_reused_slices = [
                 slc
                 for slc in slice_group
-                if slc.buffer_start <= min_start and slc.buffer_stop >= max_stop
+                if (owned or slc not in new_spectrum_slices)
+                and slc.buffer_start <= min_start
+                and slc.buffer_stop >= max_stop
             ]
             if eligible_reused_slices:
                 combined_slice = max(
@@ -1138,19 +1146,16 @@ class SpectrumAggregator:
             clean_slices = [slc for slc in dirty_slices if slc is not None]
             if len(clean_slices) != len(dirty_slices):
                 loguru.logger.warning("Some spectrum slices are not merged")
-            if not clean_slices:
-                return
+            owned = True
         else:
             clean_slices = spectrum.spectrum_slices
+            owned = False
 
         if not clean_slices:
             return
 
         self.spectrum_slices.update(clean_slices)
-        self._clean_range(
-            start=clean_slices[0].start,
-            stop=clean_slices[-1].stop,
-        )
+        self._clean_slices(new_spectrum_slices=clean_slices, owned=owned)
 
     def get_spectrum(self) -> Spectrum:
         if not self.spectrum_slices:
