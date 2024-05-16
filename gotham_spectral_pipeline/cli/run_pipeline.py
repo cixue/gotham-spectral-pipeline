@@ -5,7 +5,6 @@ import pathlib
 import pprint
 import sys
 import traceback
-import typing
 
 import loguru
 import tqdm  # type: ignore
@@ -60,11 +59,6 @@ def main(args: argparse.Namespace):
     if args.exit_if_exist and (args.output_directory / (prefix + ".npz")).exists():
         return
 
-    sdfits: SDFits = SDFits(args.sdfits)
-    zenith_opacity: ZenithOpacity | None = (
-        None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
-    )
-
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
 
@@ -74,6 +68,11 @@ def main(args: argparse.Namespace):
     loguru.logger.info(
         f"Pipeline started with the following options:\n{pprint.pformat(vars(args), sort_dicts=False)}\n"
         f"with the following command:\n{' '.join(quoted_arguments)}"
+    )
+
+    sdfits: SDFits = SDFits(args.sdfits)
+    zenith_opacity: ZenithOpacity | None = (
+        None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
     )
 
     if args.filter is None:
