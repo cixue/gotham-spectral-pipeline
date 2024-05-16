@@ -336,25 +336,31 @@ class Spectrum:
     def _sort_by_frequency(self):
         is_sorted = lambda a: numpy.all(a[1:] >= a[:-1])
 
-        if is_sorted(self.frequency):
-            return
+        (nan_positions,) = numpy.where(
+            numpy.diff(numpy.pad(numpy.isnan(self.frequency), 1, constant_values=True))
+        )
+        for start, stop in nan_positions.reshape(-1, 2):
+            current = slice(start, stop)
 
-        if is_sorted(self.frequency[::-1]):
-            self.intensity = self.intensity[::-1]
-            self.frequency = self.frequency[::-1]
+            if is_sorted(self.frequency[current]):
+                continue
+
+            if is_sorted(self.frequency[current][::-1]):
+                self.intensity[current] = self.intensity[current][::-1]
+                self.frequency[current] = self.frequency[current][::-1]
+                if self.noise is not None:
+                    self.noise[current] = self.noise[current][::-1]
+                if self.flag is not None:
+                    self.flag[current] = self.flag[current][::-1]
+                continue
+
+            sorted_idx = numpy.argsort(self.frequency[current])
+            self.intensity[current] = self.intensity[current][sorted_idx]
+            self.frequency[current] = self.frequency[current][sorted_idx]
             if self.noise is not None:
-                self.noise = self.noise[::-1]
+                self.noise[current] = self.noise[current][sorted_idx]
             if self.flag is not None:
-                self.flag = self.flag[::-1]
-            return
-
-        sorted_idx = numpy.argsort(self.frequency)
-        self.intensity = self.intensity[sorted_idx]
-        self.frequency = self.frequency[sorted_idx]
-        if self.noise is not None:
-            self.noise = self.noise[sorted_idx]
-        if self.flag is not None:
-            self.flag = self.flag[sorted_idx]
+                self.flag[current] = self.flag[current][sorted_idx]
 
     def __neg__(self) -> "Spectrum":
         if self.frequency is None:
