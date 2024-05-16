@@ -9,6 +9,7 @@ import traceback
 import loguru
 import tqdm  # type: ignore
 
+from .. import __version__
 from .. import GbtTsysLookupTable, PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
 from ..logging import capture_builtin_warnings, LogLimiter
 
@@ -61,6 +62,8 @@ def main(args: argparse.Namespace):
 
     log_limiter = LogLimiter(prefix, args.logs_directory, WARNING=30.0)
     capture_builtin_warnings()
+
+    loguru.logger.info(f"Current version: {__version__}")
 
     quoted_arguments = [
         f"'{argument}'" if " " in argument else argument for argument in sys.argv
