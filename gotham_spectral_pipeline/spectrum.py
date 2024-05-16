@@ -1174,6 +1174,7 @@ class SpectrumAggregator:
         frequency = numpy.full(total_length, numpy.nan)
         intensity = numpy.full(total_length, numpy.nan)
         noise = numpy.full(total_length, numpy.nan) if self.compute_noise else None
+        flag = numpy.full(total_length, Spectrum.FlagReason.NAN.value)
         filled_length = 0
         for spectrum_slice in self.spectrum_slices:
             current_length = spectrum_slice.stop - spectrum_slice.start
@@ -1195,5 +1196,8 @@ class SpectrumAggregator:
                     numpy.sqrt(spectrum_slice.weighted_variance[current_interval])
                     / spectrum_slice.weight[current_interval]
                 )
+            flag[fill_interval] = Spectrum.FlagReason.NOT_FLAGGED.value
             filled_length += current_length + 1
-        return Spectrum(intensity=intensity, frequency=frequency, noise=noise)
+        return Spectrum(
+            intensity=intensity, frequency=frequency, noise=noise, flag=flag
+        )
