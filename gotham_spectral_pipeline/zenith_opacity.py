@@ -147,14 +147,15 @@ class ZenithOpacity:
         for (start, stop), database in self.databases.items():
             if start <= timestamp <= stop:
                 return database
+        loguru.logger.warning(f"No weather coverage for {timestamp = }.")
         return None
 
     def get_opacity(
         self, timestamp: float, frequency: numpy.typing.ArrayLike
-    ) -> numpy.typing.NDArray[numpy.floating]:
+    ) -> numpy.typing.NDArray[numpy.floating] | None:
         database = self.get_database(timestamp)
         if database is None:
-            return numpy.full_like(frequency, numpy.nan)
+            return None
         return database.get_opacity(timestamp, frequency)
 
     @staticmethod

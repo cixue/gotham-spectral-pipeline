@@ -54,6 +54,10 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
 
 
+class Halt(RuntimeError):
+    pass
+
+
 def main(args: argparse.Namespace):
     prefix = args.sdfits.name if args.prefix is None else args.prefix
 
@@ -203,13 +207,14 @@ def main(args: argparse.Namespace):
                     )
                 )
                 if correction_factor is None:
-                    num_integration_dropped[
-                        "Can't retrieve opacity correction factor"
-                    ] += 1
-                    continue
+                    raise Halt("Opacity temperature correction enabled but failed.")
                 baseline_subtracted_spectrum *= correction_factor
 
             spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
+        except Halt as e:
+            loguru.logger.critical(*e.args)
+            tqdm.tqdm.write(*e.args)
+            sys.exit(1)
         except Exception:
             loguru.logger.critical(
                 f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"

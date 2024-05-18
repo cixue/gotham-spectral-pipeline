@@ -281,6 +281,8 @@ class Calibration:
 
         timestamp = datetime_parser(cls.get_observed_datetime(hdulist)).timestamp()
         tau = zenith_opacity.get_opacity(timestamp, frequency)
+        if tau is None:
+            return None
         elevation = cls.get_observed_elevation(hdulist)
         return Spectrum(
             intensity=numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
