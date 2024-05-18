@@ -614,10 +614,26 @@ class Spectrum:
         )
 
     def detect_signal(
-        self, *, nadjacent: int, alpha: float, chunk_size: int = 1024
+        self,
+        *,
+        nadjacent: int | dict[typing.Literal["baseline", "chisq"], int],
+        alpha: float,
+        chunk_size: int = 1024,
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
         if self.noise is None:
             loguru.logger.warning("This spectrum has no noise.")
+            return None
+
+        if isinstance(nadjacent, dict):
+            nbaseline = nadjacent["baseline"]
+            nchisq = nadjacent["chisq"]
+        else:
+            nbaseline = nchisq = nadjacent
+
+        if nbaseline < nchisq:
+            loguru.logger.error(
+                "nadjacent used for computing chisq must not be larger than that for computing baseline."
+            )
             return None
 
         if self.frequency is None:
@@ -630,28 +646,41 @@ class Spectrum:
         # straight line mx + c.
         # We define chi-squared = Sum_i (((mx_i + c) - y_i) / s_i)^2 and
         # minimizing it w.r.t. m and c gives a system of equation of the form:
-        #   p * m + q * c = r
-        #   u * m + v * c = w
+        #   sxx * m + sx * c = sxy
+        #   sx  * m + s  * c = sy
         # where
-        #   p = Sum_i (x_i**2 / s_i**2)
-        #   q = Sum_i (x_i / s_i**2)
-        #   r = Sum_i (x_i * y_i / s_i**2)
-        #   u = q
-        #   v = Sum_i (1 / s_i**2)
-        #   w = Sum_i (y_i / s_i**2)
-        # Solving the set of equation using Cramer's rule for m and c and
-        # substitude them back to definition, we get
-        # chi-squared = (
-        #     sum_one_s2 * (sum_x2_s2 * sum_y2_s2 - sum_xy_s2 * sum_xy_s2)
-        #     + sum_x_s2 * (sum_xy_s2 * sum_y_s2 - sum_x_s2 * sum_y2_s2)
-        #     + sum_y_s2 * (sum_xy_s2 * sum_x_s2 - sum_y_s2 * sum_x2_s2)
-        # ) / (sum_one_s2 * sum_x2_s2 - sum_x_s2 * sum_x_s2)
-        size = frequency.size - 2 * nadjacent
-        chi_squared = numpy.empty(size, dtype=float)
+        #   sxx = Sum_i (x_i**2 / s_i**2)
+        #   sxy = Sum_i (x_i * y_i / s_i**2)
+        #   syy = Sum_i (y_i**2 / s_i**2)
+        #   sx = Sum_i (x_i / s_i**2)
+        #   sy = Sum_i (y_i / s_i**2)
+        #   s = Sum_i (1 / s_i**2)
+        # Solving the set of equation using Cramer's rule for m and c, we get
+        #   d = sxx * s - sx**2
+        #   dm = sxy * s - sx * sy
+        #   dc = sxx * sy - sx * sxy
+        #   m = dm / d
+        #   c = dc / d
+        # Substitude them back to definition, we get
+        #   chisq = m**2 * sxx + c**2 * s + syy + 2 * (m * c * sx - m * sxy - c * sy)
+        # Simplifying it gives
+        #   chisq = (
+        #       s * (sxx * syy - sxy * sxy)
+        #       + sx * (sxy * sy - sx * syy)
+        #       + sy * (sxy * sx - sy * sxx)
+        #   ) / (s * sxx - sx * sx)
+        width_baseline = 2 * nbaseline + 1
+        width_chisq = 2 * nchisq + 1
+        size = frequency.size - width_baseline + 1
+        chisq = numpy.empty(size, dtype=float)
         for lb, ub in itertools.pairwise([*range(0, size, chunk_size), size]):
-            x = frequency[lb : ub + 2 * nadjacent]
-            y = self.intensity[lb : ub + 2 * nadjacent]
-            s = self.noise[lb : ub + 2 * nadjacent]
+            move_sum = lambda arr, window: bottleneck.move_sum(arr, window=window)[
+                window - 1 :
+            ]
+
+            x = frequency[lb : ub + width_baseline - 1]
+            y = self.intensity[lb : ub + width_baseline - 1]
+            s = self.noise[lb : ub + width_baseline - 1]
             x = x - x.mean()
             y = y - y.mean()
             one_s2 = 1 / numpy.square(s)
@@ -661,25 +690,44 @@ class Spectrum:
             xy_s2 = x * y_s2
             y2_s2 = y * y_s2
 
-            width = 2 * nadjacent + 1
-            sum_one_s2 = bottleneck.move_sum(one_s2, window=width)[2 * nadjacent :]
-            sum_x_s2 = bottleneck.move_sum(x_s2, window=width)[2 * nadjacent :]
-            sum_y_s2 = bottleneck.move_sum(y_s2, window=width)[2 * nadjacent :]
-            sum_x2_s2 = bottleneck.move_sum(x2_s2, window=width)[2 * nadjacent :]
-            sum_xy_s2 = bottleneck.move_sum(xy_s2, window=width)[2 * nadjacent :]
-            sum_y2_s2 = bottleneck.move_sum(y2_s2, window=width)[2 * nadjacent :]
+            s = move_sum(one_s2, window=width_baseline)
+            sx = move_sum(x_s2, window=width_baseline)
+            sy = move_sum(y_s2, window=width_baseline)
+            sxx = move_sum(x2_s2, window=width_baseline)
+            sxy = move_sum(xy_s2, window=width_baseline)
+            syy = move_sum(y2_s2, window=width_baseline)
 
-            chi_squared[lb:ub] = (
-                sum_one_s2 * (sum_x2_s2 * sum_y2_s2 - sum_xy_s2 * sum_xy_s2)
-                + sum_x_s2 * (sum_xy_s2 * sum_y_s2 - sum_x_s2 * sum_y2_s2)
-                + sum_y_s2 * (sum_xy_s2 * sum_x_s2 - sum_y_s2 * sum_x2_s2)
-            ) / (sum_one_s2 * sum_x2_s2 - sum_x_s2 * sum_x_s2)
+            if nbaseline == nchisq:
+                chisq[lb:ub] = (
+                    s * (sxx * syy - sxy * sxy)
+                    + sx * (sxy * sy - sx * syy)
+                    + sy * (sxy * sx - sy * sxx)
+                ) / (s * sxx - sx * sx)
+            else:
+                d = sxx * s - sx * sx
+                dm = sxy * s - sx * sy
+                dc = sxx * sy - sx * sxy
+                m = dm / d
+                c = dc / d
 
-        is_signal = numpy.where(chi_squared > scipy.special.chdtri(width, alpha))[0]
+                ndiff = nbaseline - nchisq
+                s = move_sum(one_s2[ndiff:-ndiff], window=width_chisq)
+                sx = move_sum(x_s2[ndiff:-ndiff], window=width_chisq)
+                sy = move_sum(y_s2[ndiff:-ndiff], window=width_chisq)
+                sxx = move_sum(x2_s2[ndiff:-ndiff], window=width_chisq)
+                sxy = move_sum(xy_s2[ndiff:-ndiff], window=width_chisq)
+                syy = move_sum(y2_s2[ndiff:-ndiff], window=width_chisq)
+
+                chisq[lb:ub] = (
+                    m * m * sxx + c * c * s + syy + 2 * (m * c * sx - m * sxy - c * sy)
+                )
+
+        is_signal = numpy.where(chisq > scipy.special.chdtri(width_chisq, alpha))[0]
 
         res = numpy.zeros_like(self.intensity, dtype=bool)
-        for i in range(width):
-            res[i : size + i][is_signal] = True
+        for i in range(width_chisq):
+            ndiff = nbaseline - nchisq
+            res[ndiff + i : ndiff + size + i][is_signal] = True
         return res
 
     def flag_time_domain_rfi(

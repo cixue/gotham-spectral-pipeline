@@ -172,7 +172,9 @@ def main(args: argparse.Namespace):
                     continue
 
             spectrum.flag_nan()
-            is_signal = spectrum.detect_signal(nadjacent=128, alpha=1e-6)
+            is_signal = spectrum.detect_signal(
+                nadjacent=dict(baseline=255, chisq=31), alpha=0.01
+            )
             baseline_result = spectrum.fit_baseline(
                 method="hybrid",
                 polynomial_options=dict(max_degree=20),
