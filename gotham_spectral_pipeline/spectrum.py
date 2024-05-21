@@ -1165,6 +1165,7 @@ class SpectrumAggregator:
                     eligible_reused_slices,
                     key=lambda slc: slc.buffer_stop - slc.buffer_start,
                 )
+                self.spectrum_slices.discard(combined_slice)
                 combined_slice.start = min_start
                 combined_slice.stop = max_stop
             else:
@@ -1174,7 +1175,7 @@ class SpectrumAggregator:
                     with_variance=self.compute_noise,
                     with_buffer=True,
                 )
-                self.spectrum_slices.add(combined_slice)
+            self.spectrum_slices.add(combined_slice)
             for slc in slice_group:
                 if slc is combined_slice:
                     continue
