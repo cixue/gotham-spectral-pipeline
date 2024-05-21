@@ -1137,9 +1137,9 @@ class SpectrumAggregator:
         for spectrum_slice in self.spectrum_slices.islice(
             start=first_slice_before_start
         ):
-            if spectrum_slice.start > stop:
-                break
             if spectrum_slice.start > last_group_stop_max:
+                if spectrum_slice.start > stop:
+                    break
                 grouped_slices.append([])
                 last_group_stop_max = -1
             grouped_slices[-1].append(spectrum_slice)
