@@ -1,8 +1,12 @@
 import typing
 
+from numpy.polynomial.polynomial import Polynomial
+
 __all__ = [
+    "TsysThresholdSelector",
     "TsysLookupTable",
     "GbtTsysLookupTable",
+    "GbtTsysHybridSelector",
 ]
 
 
@@ -87,3 +91,54 @@ class GbtTsysLookupTable(TsysLookupTable):
             default=default,
             reduce=reduce,
         )
+
+
+class GbtTsysHybridSelector(TsysThresholdSelector):
+    # GbtTsysLookupTable but override by a polynomial from 26 GHz to 37 GHz
+    gbt_tsys_lookup_table: GbtTsysLookupTable
+    polynomial: Polynomial
+
+    def __init__(
+        self,
+        *,
+        default: float | str | None = "closest",
+        reduce: typing.Callable[[list[float]], float] | None = max,
+    ):
+        self.gbt_tsys_lookup_table = GbtTsysLookupTable(default=default, reduce=reduce)
+        self.polynomial = Polynomial([
+            3.552619388822309876e00,
+            -1.297994008023131585e01,
+            1.142914342902317770e02,
+            -3.048693112000527208e02,
+            -1.850798931634847122e01,
+            9.562961033495090533e02,
+            -2.913862645830816973e02,
+            -1.018639884816887957e03,
+            -5.710253228865535675e02,
+            4.041167214183377610e02,
+            1.069647884919193757e03,
+            6.797821787319794566e02,
+            4.951704883719115173e02,
+            -2.580607424389293669e02,
+            -7.389976258179127626e02,
+            -1.041544929147043149e03,
+            -8.664455454291728529e02,
+            -5.117676620536553855e02,
+            1.782595578303368313e02,
+            6.421606901065808870e02,
+            1.008368697524940899e03,
+            8.496881387701535004e02,
+            7.539297355488346284e02,
+            3.830536985802419849e02,
+            -3.068924317122115326e02,
+            -6.045778473473046688e02,
+            -1.205312968380930442e03,
+            -1.010080608759854613e03,
+            -2.090776022581891311e02,
+            1.436976871685052856e03,
+        ])
+
+    def get_threshold(self, frequency: float) -> float | None:
+        if 26e9 < frequency < 37e9:
+            return self.polynomial(frequency)
+        return self.gbt_tsys_lookup_table.get_threshold(frequency)

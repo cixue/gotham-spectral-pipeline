@@ -10,7 +10,7 @@ import loguru
 import tqdm  # type: ignore
 
 from .. import __version__
-from .. import GbtTsysLookupTable, PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
+from .. import TsysThresholdSelector, GbtTsysLookupTable, GbtTsysHybridSelector, PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
 from ..logging import capture_builtin_warnings, LogLimiter
 
 
@@ -39,6 +39,12 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--max_rfi_channel", type=int, default=256)
 
     parser.add_argument("--Tsys_dynamic_threshold", action="store_true")
+    parser.add_argument(
+        "--Tsys_dynamic_threshold_selector",
+        type=str,
+        default="LookupTable",
+        choices=["LookupTable", "Hybrid"],
+    )
     parser.add_argument(
         "--Tsys_min_threshold",
         type=float,
@@ -81,6 +87,12 @@ def main(args: argparse.Namespace):
     zenith_opacity: ZenithOpacity | None = (
         None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
     )
+    tsys_threshold_selector: TsysThresholdSelector | None = None
+    if args.Tsys_dynamic_threshold:
+        if args.Tsys_dynamic_threshold_selector == "LookupTable":
+            tsys_threshold_selector = GbtTsysLookupTable()
+        elif args.Tsys_dynamic_threshold_selector == "Hybrid":
+            tsys_threshold_selector = GbtTsysHybridSelector()
 
     if args.filter is None:
         filtered_rows = sdfits.rows
@@ -132,8 +144,9 @@ def main(args: argparse.Namespace):
             Tsys_min_threshold = args.Tsys_min_threshold
             Tsys_max_threshold = args.Tsys_max_threshold
             if args.Tsys_dynamic_threshold:
+                assert tsys_threshold_selector is not None
                 central_frequency = sigrefpair["sig"]["caloff"][0].header["OBSFREQ"]
-                dynamic_threshold = GbtTsysLookupTable().get_threshold(
+                dynamic_threshold = tsys_threshold_selector.get_threshold(
                     central_frequency
                 )
                 Tsys_min_threshold *= dynamic_threshold
