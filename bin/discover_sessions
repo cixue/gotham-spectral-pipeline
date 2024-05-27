@@ -45,7 +45,9 @@ function main() {
             fi
         done
     done
-    echo ${output[@]}
+    for item in ${output[@]}; do
+        echo ${item}
+    done
 }
 
 main "$@"

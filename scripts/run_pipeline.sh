@@ -53,7 +53,9 @@ function main() {
         return
     fi
 
-    echo ${sdfits[@]} | \
+    for item in ${sdfits[@]}; do
+        echo ${item}
+    done | \
     xargs --no-run-if-empty --max-args 1 --max-procs ${processes} -I{} \
     bash -c '"$@" --sdfits "$0" > $(basename $0).log 2>&1' \
     {} ${gsp} run_pipeline "${passed_to_gsp[@]}"
