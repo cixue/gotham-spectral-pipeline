@@ -258,6 +258,9 @@ class ZenithOpacity:
         directory_name = f"Forecasts_{file_suffix}"
         commands: list[str] = []
 
+        cleo_path = "/home/cleoversions/Cleo/mainscreens/forecastsCmdLine.tcl"
+        commands.append(f"type {cleo_path} > /dev/null")
+
         remove_command = "rm"
         if force_remove:
             remove_command += " -f"
@@ -276,7 +279,7 @@ class ZenithOpacity:
         )
 
         cleo_command_pieces = [
-            "/home/cleoversions/Cleo/mainscreens/forecastsCmdLine.tcl",
+            cleo_path,
             "-average",
             "-calculate OpacityTime",
             f"-freqList `cat {directory_name}/frequency_lists.txt`",
