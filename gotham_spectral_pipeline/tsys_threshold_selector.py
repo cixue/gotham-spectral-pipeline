@@ -1,5 +1,6 @@
 import typing
 
+import numpy
 from numpy.polynomial.polynomial import Polynomial
 
 __all__ = [
@@ -140,5 +141,5 @@ class GbtTsysHybridSelector(TsysThresholdSelector):
 
     def get_threshold(self, frequency: float) -> float | None:
         if 26e9 < frequency < 37e9:
-            return self.polynomial(frequency)
+            return numpy.exp(self.polynomial(frequency / 36.3206736e9))
         return self.gbt_tsys_lookup_table.get_threshold(frequency)
