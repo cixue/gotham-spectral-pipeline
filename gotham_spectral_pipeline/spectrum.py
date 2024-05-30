@@ -283,7 +283,56 @@ def _compute_residual(
     )
 
 
-class Spectrum:
+class SpectrumLike:
+    _fields: dict[str, numpy.typing.NDArray | None]
+
+    def __init__(
+        self, **fields: tuple[numpy.typing.ArrayLike | None, numpy.typing.DTypeLike]
+    ):
+        self._fields = dict()
+        for key, (value, dtype) in fields.items():
+            if value is not None:
+                value = numpy.array(value, dtype=dtype)
+            self._fields[key] = value
+            self.__setattr__(key, value)
+
+        shapes = {
+            ndarray.shape for ndarray in self._fields.values() if ndarray is not None
+        }
+        if len(shapes) != 1:
+            loguru.logger.error("Shapes of input arrays are not identical.")
+            return
+
+    def sort_by(self, name: str):
+        target_field = self._fields.get(name)
+        if target_field is None:
+            loguru.logger.error(f"Field {name} does not exist.")
+            return
+
+        is_sorted = lambda a: numpy.all(a[1:] >= a[:-1])
+
+        (nan_positions,) = numpy.where(
+            numpy.diff(numpy.pad(numpy.isnan(target_field), 1, constant_values=True))
+        )
+        for start, stop in nan_positions.reshape(-1, 2):
+            current = slice(start, stop)
+
+            if is_sorted(target_field[current]):
+                continue
+
+            if is_sorted(target_field[current][::-1]):
+                for value in self._fields.values():
+                    if value is not None:
+                        value[current] = value[current][::-1]
+                continue
+
+            sortidx = target_field[current].argsort()
+            for value in self._fields.values():
+                if value is not None:
+                    value[current] = value[current][sortidx]
+
+
+class Spectrum(SpectrumLike):
     frequency: numpy.typing.NDArray[numpy.floating] | None
     intensity: numpy.typing.NDArray[numpy.floating]
     noise: numpy.typing.NDArray[numpy.floating] | None
@@ -304,63 +353,15 @@ class Spectrum:
         noise: numpy.typing.ArrayLike | None = None,
         flag: numpy.typing.ArrayLike | None = None,
     ):
-        self.intensity = numpy.array(intensity, dtype=numpy.float64)
-
-        if frequency is None:
-            self.frequency = None
-        else:
-            self.frequency = numpy.array(frequency, dtype=numpy.float64)
-
-        if noise is None:
-            self.noise = None
-        else:
-            self.noise = numpy.array(noise, dtype=numpy.float64)
-
-        if flag is None:
-            self.flag = None
-        else:
-            self.flag = numpy.array(flag, dtype=numpy.int32)
-
-        shapes = {
-            ndarray.shape
-            for ndarray in [self.frequency, self.intensity, self.noise, self.flag]
-            if ndarray is not None
-        }
-        if len(shapes) != 1:
-            loguru.logger.error("Shapes of input arrays are not identical.")
-            return
+        super().__init__(
+            intensity=(intensity, numpy.float64),
+            frequency=(frequency, numpy.float64),
+            noise=(noise, numpy.float64),
+            flag=(flag, numpy.int32),
+        )
 
         if self.frequency is not None:
-            self._sort_by_frequency()
-
-    def _sort_by_frequency(self):
-        is_sorted = lambda a: numpy.all(a[1:] >= a[:-1])
-
-        (nan_positions,) = numpy.where(
-            numpy.diff(numpy.pad(numpy.isnan(self.frequency), 1, constant_values=True))
-        )
-        for start, stop in nan_positions.reshape(-1, 2):
-            current = slice(start, stop)
-
-            if is_sorted(self.frequency[current]):
-                continue
-
-            if is_sorted(self.frequency[current][::-1]):
-                self.intensity[current] = self.intensity[current][::-1]
-                self.frequency[current] = self.frequency[current][::-1]
-                if self.noise is not None:
-                    self.noise[current] = self.noise[current][::-1]
-                if self.flag is not None:
-                    self.flag[current] = self.flag[current][::-1]
-                continue
-
-            sorted_idx = numpy.argsort(self.frequency[current])
-            self.intensity[current] = self.intensity[current][sorted_idx]
-            self.frequency[current] = self.frequency[current][sorted_idx]
-            if self.noise is not None:
-                self.noise[current] = self.noise[current][sorted_idx]
-            if self.flag is not None:
-                self.flag[current] = self.flag[current][sorted_idx]
+            self.sort_by("frequency")
 
     def __neg__(self) -> "Spectrum":
         if self.frequency is None:
