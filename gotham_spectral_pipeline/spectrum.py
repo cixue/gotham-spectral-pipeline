@@ -17,7 +17,12 @@ import scipy.interpolate  # type: ignore
 import scipy.special  # type: ignore
 from sortedcontainers import SortedList  # type: ignore
 
-__all__ = ["Spectrum", "SpectrumAggregator"]
+__all__ = [
+    "Spectrum",
+    "Exposure",
+    "SpectrumAggregator",
+    "ExposureAggregator",
+]
 
 Baseline = typing.Callable[
     [numpy.typing.NDArray[numpy.floating]], numpy.typing.NDArray[numpy.floating]
@@ -335,6 +340,41 @@ class SpectrumLike:
 
     def split(self, min_length: int = 2) -> list[Self]:
         raise NotImplementedError
+
+    def to_npz(self, path: pathlib.Path):
+        output = {
+            key: value for key, value in self._fields.items() if value is not None
+        }
+        numpy.savez_compressed(path, **output)
+
+    @classmethod
+    def from_npz(cls, path: pathlib.Path) -> Self:
+        output = numpy.load(path)
+        return cls(**output)
+
+    def to_txt(
+        self,
+        path: pathlib.Path,
+        columns: list[str] | None = None,
+    ):
+        if columns is None:
+            columns = list(self._fields.keys())
+        output: list[numpy.typing.NDArray] = []
+        for column in columns:
+            field = self._fields.get(column)
+            if field is None:
+                loguru.logger.error(f"This spectrum does not have {column}")
+                return
+            output.append(field)
+        numpy.savetxt(path, numpy.stack(output, axis=-1), header=f"{' '.join(columns)}")
+
+    @classmethod
+    def from_txt(cls, path: pathlib.Path) -> Self:
+        with open(path, mode="r") as fin:
+            header = fin.readline()
+            columns = header.lstrip("# ").split()
+            output = numpy.loadtxt(fin)
+        return cls(**dict(zip(columns, output)))
 
 
 class Spectrum(SpectrumLike):
@@ -931,38 +971,37 @@ class Spectrum(SpectrumLike):
             )
         return spectrum_chunks
 
-    def to_npz(self, path: pathlib.Path):
-        output = {}
-        for attribute in ["intensity", "frequency", "noise", "flag"]:
-            if getattr(self, attribute) is None:
-                continue
-            output[attribute] = getattr(self, attribute)
-        numpy.savez_compressed(path, **output)
 
-    @classmethod
-    def from_npz(self, path: pathlib.Path) -> "Spectrum":
-        output = numpy.load(path)
-        return Spectrum(**output)
+class Exposure(SpectrumLike):
+    exposure: numpy.typing.NDArray[numpy.floating]
+    frequency: numpy.typing.NDArray[numpy.floating]
 
-    def to_txt(
+    def __init__(
         self,
-        path: pathlib.Path,
-        columns: list[str] = ["frequency", "intensity", "noise"],
+        *,
+        exposure: numpy.typing.ArrayLike,
+        frequency: numpy.typing.ArrayLike,
     ):
-        for column in columns:
-            if getattr(self, column) is None:
-                loguru.logger.error(f"This spectrum does not have {column}")
-                return
-        output = [getattr(self, column) for column in columns]
-        numpy.savetxt(path, numpy.stack(output, axis=-1), header=f"{' '.join(columns)}")
+        super().__init__(
+            exposure=(exposure, numpy.float64),
+            frequency=(frequency, numpy.float64),
+        )
 
-    @classmethod
-    def from_txt(self, path: pathlib.Path) -> "Spectrum":
-        with open(path, mode="r") as fin:
-            header = fin.readline()
-            columns = header.lstrip("# ").split()
-            output = numpy.loadtxt(fin)
-        return Spectrum(**dict(zip(columns, output)))
+        if self.frequency is not None:
+            self.sort_by("frequency")
+
+    def split(self, min_length: int = 2) -> "list[Exposure]":
+        exposure_chunks: list[Exposure] = []
+        (split_positions,) = numpy.where(
+            numpy.diff(numpy.pad(numpy.isnan(self.frequency), 1, constant_values=True))
+        )
+        for start, stop in split_positions.reshape(-1, 2):
+            if stop - start < min_length:
+                continue
+            exposure = self.exposure[start:stop]
+            frequency = self.frequency[start:stop]
+            exposure_chunks.append(Exposure(exposure=exposure, frequency=frequency))
+        return exposure_chunks
 
 
 class Aggregator(typing.Generic[_SpectrumLike]):
@@ -1287,3 +1326,67 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         return Spectrum(
             intensity=intensity, frequency=frequency, noise=noise, flag=flag
         )
+
+
+class ExposureAggregator(Aggregator[Exposure]):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Exposure, "frequency", *args, **kwargs)
+
+    def _init_spectrum_slice(self, spectrum_slice: Aggregator.SpectrumSlice):
+        buffer_length = spectrum_slice.buffer_stop - spectrum_slice.buffer_start
+        spectrum_slice.data["exposure"] = numpy.zeros(
+            buffer_length, dtype=numpy.float64
+        )
+
+    def _fill_spectrum_slice(
+        self,
+        spectrum_slice: Aggregator.SpectrumSlice,
+        spectrum: Exposure,
+        interval: slice,
+        aligned_value: numpy.typing.NDArray[numpy.floating],
+    ):
+        spectrum_slice.data["exposure"][interval] = scipy.interpolate.interp1d(
+            spectrum.frequency,
+            spectrum.exposure,
+            kind="nearest",
+            copy=False,
+            bounds_error=False,
+            fill_value=0.0,
+            assume_sorted=True,
+        )(aligned_value)
+
+    def _add_spectrum_slices(
+        self,
+        mutable: Aggregator.SpectrumSlice,
+        constant: Aggregator.SpectrumSlice,
+        mutable_interval: slice,
+        constant_interval: slice,
+    ):
+        mutable.data["exposure"][mutable_interval] += constant.data["exposure"][
+            constant_interval
+        ]
+
+    def get_spectrum(self) -> Exposure:
+        if not self.spectrum_slices:
+            return Exposure(exposure=[], frequency=[])
+
+        total_length = (
+            sum(map(lambda slc: slc.stop - slc.start + 1, self.spectrum_slices)) - 1
+        )
+        frequency = numpy.full(total_length, numpy.nan)
+        exposure = numpy.full(total_length, numpy.nan)
+        filled_length = 0
+        for spectrum_slice in self.spectrum_slices:
+            current_length = spectrum_slice.stop - spectrum_slice.start
+            current_interval = slice(
+                spectrum_slice.start - spectrum_slice.buffer_start,
+                spectrum_slice.stop - spectrum_slice.buffer_start,
+            )
+            fill_interval = slice(filled_length, filled_length + current_length)
+            frequency[fill_interval] = self.transformer.forward(
+                numpy.arange(spectrum_slice.start, spectrum_slice.stop)
+            )
+            exposure[fill_interval] = spectrum_slice.data["exposure"][current_interval]
+            filled_length += current_length + 1
+        return Exposure(exposure=exposure, frequency=frequency)

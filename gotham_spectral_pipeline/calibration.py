@@ -1,10 +1,9 @@
 from .sdfits import HDUList, SDFits
-from .spectrum import Spectrum
+from .spectrum import Exposure, Spectrum
 from .utils import datetime_parser, lru_cache
 from .zenith_opacity import ZenithOpacity
 
 import typing
-import uuid
 
 import astropy.constants  # type: ignore
 import astropy.io.fits  # type: ignore
@@ -113,6 +112,12 @@ class Calibration:
     def get_intensity_raw_count(
         cls, hdulist: HDUList
     ) -> numpy.typing.NDArray[numpy.floating]:
+        raise NotImplementedError()
+
+    @classmethod
+    def get_exposure(
+        cls, calonoffpair: CalOnOffPairedHDUList, freq_kwargs: dict = dict()
+    ) -> Exposure | None:
         raise NotImplementedError()
 
     @classmethod
@@ -415,6 +420,25 @@ class PositionSwitchedCalibration(Calibration):
         cls, hdulist: HDUList
     ) -> numpy.typing.NDArray[numpy.floating]:
         return hdulist[0].data.squeeze()
+
+    @classmethod
+    def get_exposure(
+        cls, calonoffpair: CalOnOffPairedHDUList, freq_kwargs: dict = dict()
+    ) -> Exposure | None:
+        frequency = calonoffpair.get_property(
+            lambda hdulist: cls.get_corrected_frequency(hdulist, **freq_kwargs),
+            transformer=lambda ndarray: ndarray.tobytes(),
+            property_name="Corrected frequency grid",
+        )
+        if frequency is None:
+            return None
+
+        exposure = calonoffpair.get_property(
+            lambda hdulist: hdulist[0].header["EXPOSURE"], property_name="Exposure"
+        )
+        return Exposure(
+            exposure=numpy.full_like(frequency, exposure), frequency=frequency
+        )
 
     @classmethod
     def get_noise(

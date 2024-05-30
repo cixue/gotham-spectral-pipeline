@@ -10,7 +10,10 @@ import loguru
 import tqdm  # type: ignore
 
 from .. import __version__
-from .. import TsysThresholdSelector, GbtTsysLookupTable, GbtTsysHybridSelector, PositionSwitchedCalibration, SDFits, Spectrum, SpectrumAggregator, ZenithOpacity
+from .. import Spectrum, SpectrumAggregator
+from .. import Exposure, ExposureAggregator
+from .. import PositionSwitchedCalibration, SDFits, ZenithOpacity
+from .. import GbtTsysLookupTable, GbtTsysHybridSelector, TsysThresholdSelector
 from ..logging import capture_builtin_warnings, LogLimiter
 
 
@@ -109,6 +112,14 @@ def main(args: argparse.Namespace):
             SpectrumAggregator.LinearTransformer(args.channel_width)
         )
     )
+    exposure_aggregator: dict[str, ExposureAggregator] = collections.defaultdict(
+        lambda: ExposureAggregator(
+            ExposureAggregator.LinearTransformer(args.channel_width)
+        )
+    )
+    total_exposure_aggregator = ExposureAggregator(
+        ExposureAggregator.LinearTransformer(args.channel_width)
+    )
     Tsys_stats: dict[str, dict[str, int]] = collections.defaultdict(
         lambda: dict(succeed=0, total=0)
     )
@@ -127,6 +138,12 @@ def main(args: argparse.Namespace):
         }
         try:
             sigrefpair = paired_row.get_paired_hdu(sdfits)
+            exposure = PositionSwitchedCalibration.get_exposure(sigrefpair["sig"])
+            if exposure is None:
+                num_integration_dropped["No exposure returned"] += 1
+                continue
+            total_exposure_aggregator.merge(exposure)
+
             if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
                 num_integration_dropped["Failed prechecks"] += 1
                 continue
@@ -223,7 +240,10 @@ def main(args: argparse.Namespace):
                     raise Halt("Opacity temperature correction enabled but failed.")
                 baseline_subtracted_spectrum *= correction_factor
 
+            exposure.exposure[baseline_subtracted_spectrum.flagged] = 0.0
+
             spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
+            exposure_aggregator[group].merge(exposure)
         except Halt as e:
             loguru.logger.critical(*e.args)
             tqdm.tqdm.write(*e.args)
@@ -239,6 +259,7 @@ def main(args: argparse.Namespace):
         )
 
     final_spectrum_aggregator: SpectrumAggregator | None = None
+    final_exposure_aggregator: ExposureAggregator | None = None
     for group in sorted(all_groups):
         if Tsys_stats[group]["total"] == 0:
             Tsys_success_rate = 0.0
@@ -252,15 +273,32 @@ def main(args: argparse.Namespace):
                     final_spectrum_aggregator = spectrum_aggregator[group]
                 else:
                     final_spectrum_aggregator.merge(spectrum_aggregator[group])
+            if group in exposure_aggregator:
+                if final_exposure_aggregator is None:
+                    final_exposure_aggregator = exposure_aggregator[group]
+                else:
+                    final_exposure_aggregator.merge(exposure_aggregator[group])
         else:
             loguru.logger.info(
                 f"Dropped integrations in {group = } since success rate = {Tsys_success_rate} < required minimum success rate = {args.Tsys_min_success_rate}"
             )
 
+    output_directory = args.output_directory
+    os.makedirs(output_directory, exist_ok=True)
+
     if final_spectrum_aggregator is not None:
-        output_directory = args.output_directory
-        os.makedirs(output_directory, exist_ok=True)
-        output_path = output_directory / prefix
-        final_spectrum_aggregator.get_spectrum().to_npz(output_path)
+        final_spectrum_aggregator.get_spectrum().to_npz(output_directory / prefix)
+
+    total_exposure = total_exposure_aggregator.get_spectrum()
+    total_exposure.to_npz(output_directory / (prefix + ".total_exposure"))
+
+    exposure = total_exposure
+    exposure.exposure[:] = 0.0
+    del total_exposure
+
+    if final_exposure_aggregator is not None:
+        final_exposure_aggregator.merge(exposure)
+        exposure = final_exposure_aggregator.get_spectrum()
+    exposure.to_npz(output_directory / (prefix + ".exposure"))
 
     log_limiter.log_silence_report()
