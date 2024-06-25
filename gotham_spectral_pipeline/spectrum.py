@@ -1115,7 +1115,7 @@ class Aggregator(typing.Generic[_SpectrumLike]):
             return None
 
         start = int(numpy.ceil(self.transformer.backward(aligned_field[0])))
-        stop = int(numpy.ceil(self.transformer.backward(aligned_field[-1])))
+        stop = int(numpy.floor(self.transformer.backward(aligned_field[-1]))) + 1
         if start >= stop:
             return None
         spectrum_slice = self.SpectrumSlice.new_empty_slice(start, stop)
