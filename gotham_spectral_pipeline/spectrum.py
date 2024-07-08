@@ -970,11 +970,12 @@ class Spectrum(SpectrumLike):
         self,
         half_moving_window: int = 512,
     ) -> "Spectrum":
-        not_flagged = ~self.flagged(~Spectrum.FlagReason.VALID_DATA)
-        count = _centered_move_sum(not_flagged, half_moving_window)
+        has_valid_data = self.flagged(Spectrum.FlagReason.VALID_DATA)
+        count = _centered_move_sum(has_valid_data, half_moving_window)
         intensity = (
             _centered_move_sum(
-                numpy.where(not_flagged, self.intensity, numpy.nan), half_moving_window
+                numpy.where(has_valid_data, self.intensity, numpy.nan),
+                half_moving_window,
             )
             / count
         )
@@ -983,7 +984,7 @@ class Spectrum(SpectrumLike):
             if self.noise is None
             else numpy.sqrt(
                 _centered_move_sum(
-                    numpy.where(not_flagged, self.noise**2, numpy.nan),
+                    numpy.where(has_valid_data, self.noise**2, numpy.nan),
                     half_moving_window,
                 )
             )
@@ -1334,21 +1335,26 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         constant_interval: slice,
     ):
         overlapped = (
-            mutable.data["flag"][mutable_interval]
-            & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
-            != 0
-        ) & (
-            mutable.data["flag"][mutable_interval]
-            & Spectrum.FlagReason.SIGNAL.value  # type: ignore
-            == 0
-        ) & (
-            constant.data["flag"][constant_interval]
-            & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
-            != 0
-        ) & (
-            constant.data["flag"][constant_interval]
-            & Spectrum.FlagReason.SIGNAL.value  # type: ignore
-            == 0
+            (
+                mutable.data["flag"][mutable_interval]
+                & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+                != 0
+            )
+            & (
+                mutable.data["flag"][mutable_interval]
+                & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+                == 0
+            )
+            & (
+                constant.data["flag"][constant_interval]
+                & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+                != 0
+            )
+            & (
+                constant.data["flag"][constant_interval]
+                & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+                == 0
+            )
         )
         if overlapped.sum() != 0:
             mutable_overlapped = mutable.data["weighted_intensity"][mutable_interval][
