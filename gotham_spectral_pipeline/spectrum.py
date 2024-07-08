@@ -1333,6 +1333,49 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         mutable_interval: slice,
         constant_interval: slice,
     ):
+        overlapped = (
+            mutable.data["flag"][mutable_interval]
+            & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+            != 0
+        ) & (
+            mutable.data["flag"][mutable_interval]
+            & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+            == 0
+        ) & (
+            constant.data["flag"][constant_interval]
+            & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+            != 0
+        ) & (
+            constant.data["flag"][constant_interval]
+            & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+            == 0
+        )
+        if overlapped.sum() != 0:
+            mutable_overlapped = mutable.data["weighted_intensity"][mutable_interval][
+                overlapped
+            ] / numpy.sqrt(
+                mutable.data["weighted_variance"][mutable_interval][overlapped]
+            )
+            constant_overlapped = constant.data["weighted_intensity"][
+                constant_interval
+            ][overlapped] / numpy.sqrt(
+                constant.data["weighted_variance"][constant_interval][overlapped]
+            )
+            rho = numpy.nanmean(
+                (mutable_overlapped - numpy.nanmean(mutable_overlapped))
+                * (constant_overlapped - numpy.nanmean(constant_overlapped))
+            )
+            correlated_variance = (
+                2
+                * rho
+                * numpy.sqrt(
+                    mutable.data["weighted_variance"][mutable_interval]
+                    * constant.data["weighted_variance"][constant_interval]
+                )
+            )
+        else:
+            correlated_variance = None
+
         mutable.data["weight"][mutable_interval] += constant.data["weight"][
             constant_interval
         ]
@@ -1343,6 +1386,8 @@ class SpectrumAggregator(Aggregator[Spectrum]):
             "weighted_variance"
         ][constant_interval]
         mutable.data["flag"][mutable_interval] |= constant.data["flag"][constant_interval]  # type: ignore
+        if correlated_variance is not None:
+            mutable.data["weighted_variance"][mutable_interval] += correlated_variance
 
     def get_spectrum(self) -> Spectrum:
         if not self.spectrum_slices:
