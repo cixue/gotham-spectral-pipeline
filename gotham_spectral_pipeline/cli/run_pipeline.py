@@ -187,16 +187,11 @@ def main(args: argparse.Namespace):
             assert spectrum.flag is not None
             if args.max_rfi_channel > 0:
                 rfi_in_body_count = (
-                    (
-                        spectrum.flag[
-                            (spectrum.flag & Spectrum.FlagReason.CHUNK_EDGES.value) == 0
-                        ]
-                        & (
-                            Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
-                            | Spectrum.FlagReason.TIME_DOMAIN_RFI.value
-                        )
+                    ~spectrum.flagged(Spectrum.FlagReason.CHUNK_EDGES)
+                    & spectrum.flagged(
+                        Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                        | Spectrum.FlagReason.TIME_DOMAIN_RFI
                     )
-                    != 0
                 ).sum()
                 if rfi_in_body_count > args.max_rfi_channel:
                     loguru.logger.error(
