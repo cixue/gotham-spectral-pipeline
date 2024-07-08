@@ -206,16 +206,13 @@ def main(args: argparse.Namespace):
                     continue
 
             spectrum.flag_nan()
-            is_signal = spectrum.detect_signal(
-                nadjacent=dict(baseline=255, chisq=31), alpha=0.01
-            )
+            spectrum.flag_signal()
             baseline_result = spectrum.fit_baseline(
                 method="hybrid",
                 polynomial_options=dict(max_degree=20),
                 lomb_scargle_options=dict(
                     min_num_terms=0, max_num_terms=40, max_cycle=32
                 ),
-                mask=is_signal,
                 residual_threshold=0.1,
             )
             if baseline_result is None:
@@ -240,7 +237,10 @@ def main(args: argparse.Namespace):
                     raise Halt("Opacity temperature correction enabled but failed.")
                 baseline_subtracted_spectrum *= correction_factor
 
-            exposure.exposure[baseline_subtracted_spectrum.flagged] = 0.0
+            baseline_subtracted_spectrum.flag_valid_data()
+            exposure.exposure[
+                ~baseline_subtracted_spectrum.flagged(Spectrum.FlagReason.VALID_DATA)
+            ] = 0.0
 
             spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
             exposure_aggregator[group].merge(exposure)

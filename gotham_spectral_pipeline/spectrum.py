@@ -394,12 +394,14 @@ class Spectrum(SpectrumLike):
     noise: numpy.typing.NDArray[numpy.floating] | None
     flag: numpy.typing.NDArray[numpy.signedinteger] | None
 
-    class FlagReason(enum.Enum):
+    class FlagReason(enum.Flag):
         NOT_FLAGGED = 0
-        NAN = 1 << 0
-        CHUNK_EDGES = 1 << 1
-        FREQUENCY_DOMAIN_RFI = 1 << 2
-        TIME_DOMAIN_RFI = 1 << 3
+        NAN = enum.auto()
+        CHUNK_EDGES = enum.auto()
+        FREQUENCY_DOMAIN_RFI = enum.auto()
+        TIME_DOMAIN_RFI = enum.auto()
+        SIGNAL = enum.auto()
+        VALID_DATA = enum.auto()
 
     def __init__(
         self,
@@ -657,13 +659,15 @@ class Spectrum(SpectrumLike):
 
         return NotImplemented
 
-    @property
-    def flagged(self) -> numpy.typing.NDArray[numpy.bool_]:
+    def flagged(
+        self, flags: "Spectrum.FlagReason | None" = None
+    ) -> numpy.typing.NDArray[numpy.bool_]:
         if self.flag is None:
             loguru.logger.warning("This spectrum have no flags.")
             return numpy.full_like(self.intensity, False)
-
-        return self.flag != Spectrum.FlagReason.NOT_FLAGGED.value
+        if flags is None:
+            return self.flag != 0
+        return (self.flag & flags.value) != 0
 
     def _add_flag_array(self):
         self.flag = numpy.full_like(
@@ -787,6 +791,38 @@ class Spectrum(SpectrumLike):
             res[ndiff + i : ndiff + size + i][is_signal] = True
         return res
 
+    def flag_valid_data(self):
+        if self.flag is None:
+            self._add_flag_array()
+        assert self.flag is not None
+
+        is_valid = ~self.flagged(
+            Spectrum.FlagReason.NAN
+            | Spectrum.FlagReason.CHUNK_EDGES
+            | Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+            | Spectrum.FlagReason.TIME_DOMAIN_RFI
+        )
+        self.flag[is_valid] |= Spectrum.FlagReason.VALID_DATA.value
+
+    def flag_signal(
+        self,
+        *,
+        nadjacent: int
+        | dict[typing.Literal["baseline", "chisq"], int] = dict(baseline=255, chisq=31),
+        alpha: float = 0.01,
+        chunk_size: int = 1024,
+    ):
+        if self.flag is None:
+            self._add_flag_array()
+        assert self.flag is not None
+
+        is_signal = self.detect_signal(
+            nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
+        )
+        if is_signal is None:
+            return
+        self.flag[is_signal] |= Spectrum.FlagReason.SIGNAL.value
+
     def flag_time_domain_rfi(
         self,
         spectrum_metadata: dict,
@@ -857,15 +893,14 @@ class Spectrum(SpectrumLike):
     def fit_baseline(
         self,
         method: typing.Literal["hybrid", "polynomial", "lomb-scargle"] = "hybrid",
-        mask: numpy.typing.NDArray[numpy.bool_] | None = None,
         residual_threshold: float | None = None,
         residual_half_moving_window: int = 512,
         polynomial_options: dict[str, typing.Any] = {},
         lomb_scargle_options: dict[str, typing.Any] = {},
     ) -> tuple[Baseline, BaselineSupplementaryInfo] | None:
-        fitted = ~self.flagged if mask is None else ~(mask | self.flagged)
+        fitted = ~self.flagged(~Spectrum.FlagReason.VALID_DATA)
         frequency = (
-            numpy.arange(fitted.size)
+            numpy.arange(fitted.size, dtype=numpy.float64)
             if self.frequency is None
             else self.frequency[fitted]
         )
@@ -934,9 +969,8 @@ class Spectrum(SpectrumLike):
     def get_moving_averaged_spectrum(
         self,
         half_moving_window: int = 512,
-        mask: numpy.typing.NDArray[numpy.bool_] | None = None,
     ) -> "Spectrum":
-        not_flagged = ~self.flagged if mask is None else ~(mask | self.flagged)
+        not_flagged = ~self.flagged(~Spectrum.FlagReason.VALID_DATA)
         count = _centered_move_sum(not_flagged, half_moving_window)
         intensity = (
             _centered_move_sum(
@@ -964,7 +998,13 @@ class Spectrum(SpectrumLike):
 
         spectrum_chunks: list[Spectrum] = []
         (split_positions,) = numpy.where(
-            numpy.diff(numpy.pad(self.flagged, 1, constant_values=True))
+            numpy.diff(
+                numpy.pad(
+                    ~self.flagged(Spectrum.FlagReason.VALID_DATA),
+                    1,
+                    constant_values=True,
+                )
+            )
         )
         for start, stop in split_positions.reshape(-1, 2):
             if stop - start < min_length:
@@ -1057,7 +1097,10 @@ class Aggregator(typing.Generic[_SpectrumLike]):
         stop: int
         buffer_start: int
         buffer_stop: int
-        data: dict[str, numpy.typing.NDArray[numpy.floating]]
+        data: dict[
+            str,
+            numpy.typing.NDArray[numpy.floating] | numpy.typing.NDArray[numpy.integer],
+        ]
 
         def __eq__(self, other) -> bool:
             if isinstance(other, Aggregator.SpectrumSlice):
@@ -1212,10 +1255,10 @@ class Aggregator(typing.Generic[_SpectrumLike]):
     def merge(self, spectrum: "_SpectrumLike | Aggregator[_SpectrumLike]"):
         if isinstance(spectrum, self.spectrum_class):
             assert isinstance(spectrum, SpectrumLike)
-            dirty_slices = [*map(self._make_spectrum_slice, spectrum.split())]  # type: ignore
-            clean_slices = [slc for slc in dirty_slices if slc is not None]
-            if len(clean_slices) != len(dirty_slices):
-                loguru.logger.warning("Some spectrum slices are not merged")
+            spectrum_slice = self._make_spectrum_slice(spectrum)  # type: ignore
+            if spectrum_slice is None:
+                return
+            clean_slices = [spectrum_slice]
             owned = True
         elif isinstance(spectrum, type(self)):
             clean_slices = spectrum.spectrum_slices
@@ -1248,6 +1291,9 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         spectrum_slice.data["weighted_variance"] = numpy.zeros(
             buffer_length, dtype=numpy.float64
         )
+        spectrum_slice.data["flag"] = numpy.full(
+            buffer_length, Spectrum.FlagReason.NOT_FLAGGED.value, dtype=numpy.int32
+        )
 
     def _fill_spectrum_slice(
         self,
@@ -1258,6 +1304,7 @@ class SpectrumAggregator(Aggregator[Spectrum]):
     ):
         assert spectrum.frequency is not None
         assert spectrum.noise is not None
+        assert spectrum.flag is not None
 
         nearest, out_of_bound = _searchsorted_nearest(spectrum.frequency, aligned_value)
         intensity = spectrum.intensity[nearest]
@@ -1273,6 +1320,11 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         spectrum_slice.data["weighted_variance"][interval] = (
             numpy.square(weight) * variance
         )
+        spectrum_slice.data["flag"][interval] = spectrum.flag[nearest]
+        flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
+        spectrum_slice.data["weight"][interval][flagged] = 0.0
+        spectrum_slice.data["weighted_intensity"][interval][flagged] = 0.0
+        spectrum_slice.data["weighted_variance"][interval][flagged] = 0.0
 
     def _add_spectrum_slices(
         self,
@@ -1290,6 +1342,7 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         mutable.data["weighted_variance"][mutable_interval] += constant.data[
             "weighted_variance"
         ][constant_interval]
+        mutable.data["flag"][mutable_interval] |= constant.data["flag"][constant_interval]  # type: ignore
 
     def get_spectrum(self) -> Spectrum:
         if not self.spectrum_slices:
@@ -1321,7 +1374,7 @@ class SpectrumAggregator(Aggregator[Spectrum]):
                 numpy.sqrt(spectrum_slice.data["weighted_variance"][current_interval])
                 / spectrum_slice.data["weight"][current_interval]
             )
-            flag[fill_interval] = Spectrum.FlagReason.NOT_FLAGGED.value
+            flag[fill_interval] = spectrum_slice.data["flag"][current_interval]
             filled_length += current_length + 1
         return Spectrum(
             intensity=intensity, frequency=frequency, noise=noise, flag=flag
