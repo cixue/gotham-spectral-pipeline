@@ -13,7 +13,6 @@ import loguru
 import numpy
 import numpy.polynomial.polynomial as poly
 import numpy.typing
-import scipy.interpolate  # type: ignore
 import scipy.special  # type: ignore
 from sortedcontainers import SortedList  # type: ignore
 
@@ -288,6 +287,18 @@ def _compute_residual(
     return numpy.max(
         numpy.fabs(_centered_move_mean(intensity / noise, half_moving_window))
     )
+
+
+def _searchsorted_nearest(
+    a: numpy.typing.NDArray[numpy.floating], v: numpy.typing.NDArray[numpy.floating]
+):
+    right = numpy.searchsorted(a, v)
+    left = right - 1
+    right[right >= a.size] = a.size - 1
+    left[left < 0] = 0
+    nearest = numpy.where(v - a[left] < a[right] - v, left, right)
+    (out_of_bound,) = numpy.where((v < a[0]) | (v > a[-1]))
+    return nearest, out_of_bound
 
 
 class SpectrumLike:
@@ -1245,25 +1256,14 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         interval: slice,
         aligned_value: numpy.typing.NDArray[numpy.floating],
     ):
-        intensity = scipy.interpolate.interp1d(
-            spectrum.frequency,
-            spectrum.intensity,
-            kind="nearest",
-            copy=False,
-            bounds_error=False,
-            fill_value=0.0,
-            assume_sorted=True,
-        )(aligned_value)
+        assert spectrum.frequency is not None
+        assert spectrum.noise is not None
 
-        noise = scipy.interpolate.interp1d(
-            spectrum.frequency,
-            spectrum.noise,
-            kind="nearest",
-            copy=False,
-            bounds_error=False,
-            fill_value=numpy.inf,
-            assume_sorted=True,
-        )(aligned_value)
+        nearest, out_of_bound = _searchsorted_nearest(spectrum.frequency, aligned_value)
+        intensity = spectrum.intensity[nearest]
+        intensity[out_of_bound] = 0.0
+        noise = spectrum.noise[nearest]
+        noise[out_of_bound] = numpy.inf
 
         variance = numpy.square(noise)
         weight = 1 / variance
@@ -1346,15 +1346,9 @@ class ExposureAggregator(Aggregator[Exposure]):
         interval: slice,
         aligned_value: numpy.typing.NDArray[numpy.floating],
     ):
-        spectrum_slice.data["exposure"][interval] = scipy.interpolate.interp1d(
-            spectrum.frequency,
-            spectrum.exposure,
-            kind="nearest",
-            copy=False,
-            bounds_error=False,
-            fill_value=0.0,
-            assume_sorted=True,
-        )(aligned_value)
+        nearest, out_of_bound = _searchsorted_nearest(spectrum.frequency, aligned_value)
+        spectrum_slice.data["exposure"][interval] = spectrum.exposure[nearest]
+        spectrum_slice.data["exposure"][interval][out_of_bound] = 0.0
 
     def _add_spectrum_slices(
         self,
