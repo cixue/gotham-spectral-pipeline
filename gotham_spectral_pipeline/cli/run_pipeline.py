@@ -35,7 +35,6 @@ def configure_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--prefix", type=str)
     parser.add_argument("--output_directory", type=pathlib.Path, default="output")
     parser.add_argument("--logs_directory", type=pathlib.Path, default="logs")
-    parser.add_argument("--grouped_by_sampler", action="store_true")
     parser.add_argument("--exit_if_exist", action="store_true")
 
     parser.add_argument("--flag_head_tail_channel_number", type=int, default=4096)
@@ -123,14 +122,20 @@ def main(args: argparse.Namespace):
     Tsys_stats: dict[str, dict[str, int]] = collections.defaultdict(
         lambda: dict(succeed=0, total=0)
     )
-    all_groups: set[str] = set()
-    for paired_row in tqdm.tqdm(paired_rows):
-        if args.grouped_by_sampler:
-            group = paired_row.metadata["group"]["sampler"]
-        else:
-            group = "none"
-        all_groups.add(group)
 
+    grouped_paired_rows = collections.defaultdict(list)
+    for paired_row in paired_rows:
+        group = paired_row.metadata["group"]["sampler"]
+        grouped_paired_rows[group].append(paired_row)
+
+    def grouped_paired_rows_iter():
+        progress_bar = tqdm.tqdm(total=sum(map(len, grouped_paired_rows.values())))
+        for group in grouped_paired_rows:
+            for paired_row in grouped_paired_rows[group]:
+                yield group, paired_row
+                progress_bar.update(1)
+
+    for group, paired_row in grouped_paired_rows_iter():
         debug_indices = {
             f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"].iloc[0])
             for sigref in paired_row
@@ -255,7 +260,7 @@ def main(args: argparse.Namespace):
 
     final_spectrum_aggregator: SpectrumAggregator | None = None
     final_exposure_aggregator: ExposureAggregator | None = None
-    for group in sorted(all_groups):
+    for group in sorted(grouped_paired_rows.keys()):
         if Tsys_stats[group]["total"] == 0:
             Tsys_success_rate = 0.0
         else:
