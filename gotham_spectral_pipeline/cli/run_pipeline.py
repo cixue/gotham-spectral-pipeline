@@ -129,7 +129,11 @@ def main(args: argparse.Namespace):
         grouped_paired_rows[group].append(paired_row)
 
     def grouped_paired_rows_iter():
-        progress_bar = tqdm.tqdm(total=sum(map(len, grouped_paired_rows.values())))
+        progress_bar = tqdm.tqdm(
+            total=sum(map(len, grouped_paired_rows.values())),
+            dynamic_ncols=True,
+            smoothing=0.0,
+        )
         for group in grouped_paired_rows:
             for paired_row in grouped_paired_rows[group]:
                 yield group, paired_row
