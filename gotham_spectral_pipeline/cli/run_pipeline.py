@@ -124,14 +124,14 @@ def main(args: argparse.Namespace):
         lambda: dict(succeed=0, total=0)
     )
 
-    grouped_paired_rows = collections.defaultdict(list)
-    for paired_row in paired_rows:
-        group = paired_row.metadata["group"]["sampler"]
-        grouped_paired_rows[group].append(paired_row)
-
     def grouped_paired_rows_iter():
+        grouped_paired_rows = collections.defaultdict(list)
+        for paired_row in paired_rows:
+            group = paired_row.metadata["group"]["sampler"]
+            grouped_paired_rows[group].append(paired_row)
+
         progress_bar = tqdm.tqdm(
-            total=sum(map(len, grouped_paired_rows.values())),
+            total=len(paired_rows),
             dynamic_ncols=True,
             smoothing=0.0,
         )
@@ -270,7 +270,7 @@ def main(args: argparse.Namespace):
     final_exposure_aggregator = ExposureAggregator(
         ExposureAggregator.LinearTransformer(args.channel_width)
     )
-    for group in sorted(grouped_paired_rows.keys()):
+    for group in sorted(Tsys_stats.keys()):
         if Tsys_stats[group]["total"] == 0:
             Tsys_success_rate = 0.0
         else:
