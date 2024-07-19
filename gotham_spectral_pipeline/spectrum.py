@@ -1126,12 +1126,14 @@ class Aggregator(typing.Generic[_SpectrumLike]):
     aligned_by: str
     transformer: Transformer
     spectrum_slices: SortedList
+    options: dict
 
     def __init__(
         self,
         spectrum_class: type[_SpectrumLike],
         aligned_by: str,
         transformer: Transformer,
+        options: dict | None = None,
     ):
         self.spectrum_class = spectrum_class
         self.aligned_by = aligned_by
@@ -1139,6 +1141,7 @@ class Aggregator(typing.Generic[_SpectrumLike]):
         self.spectrum_slices = SortedList(
             key=lambda spectrum_slice: spectrum_slice.start
         )
+        self.options = dict() if options is None else options
 
     def _init_spectrum_slice(self, spectrum_slice: SpectrumSlice):
         raise NotImplementedError
@@ -1334,53 +1337,53 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         mutable_interval: slice,
         constant_interval: slice,
     ):
-        overlapped = (
-            (
-                mutable.data["flag"][mutable_interval]
-                & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
-                != 0
-            )
-            & (
-                mutable.data["flag"][mutable_interval]
-                & Spectrum.FlagReason.SIGNAL.value  # type: ignore
-                == 0
-            )
-            & (
-                constant.data["flag"][constant_interval]
-                & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
-                != 0
-            )
-            & (
-                constant.data["flag"][constant_interval]
-                & Spectrum.FlagReason.SIGNAL.value  # type: ignore
-                == 0
-            )
-        )
-        if overlapped.sum() != 0:
-            mutable_overlapped = mutable.data["weighted_intensity"][mutable_interval][
-                overlapped
-            ] / numpy.sqrt(
-                mutable.data["weighted_variance"][mutable_interval][overlapped]
-            )
-            constant_overlapped = constant.data["weighted_intensity"][
-                constant_interval
-            ][overlapped] / numpy.sqrt(
-                constant.data["weighted_variance"][constant_interval][overlapped]
-            )
-            rho = numpy.nanmean(
-                (mutable_overlapped - numpy.nanmean(mutable_overlapped))
-                * (constant_overlapped - numpy.nanmean(constant_overlapped))
-            )
-            correlated_variance = (
-                2
-                * rho
-                * numpy.sqrt(
-                    mutable.data["weighted_variance"][mutable_interval]
-                    * constant.data["weighted_variance"][constant_interval]
+        correlated_variance = None
+        if self.options.get("include_correlation", False):
+            overlapped = (
+                (
+                    mutable.data["flag"][mutable_interval]
+                    & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+                    != 0
+                )
+                & (
+                    mutable.data["flag"][mutable_interval]
+                    & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+                    == 0
+                )
+                & (
+                    constant.data["flag"][constant_interval]
+                    & Spectrum.FlagReason.VALID_DATA.value  # type: ignore
+                    != 0
+                )
+                & (
+                    constant.data["flag"][constant_interval]
+                    & Spectrum.FlagReason.SIGNAL.value  # type: ignore
+                    == 0
                 )
             )
-        else:
-            correlated_variance = None
+            if overlapped.sum() != 0:
+                mutable_overlapped = mutable.data["weighted_intensity"][
+                    mutable_interval
+                ][overlapped] / numpy.sqrt(
+                    mutable.data["weighted_variance"][mutable_interval][overlapped]
+                )
+                constant_overlapped = constant.data["weighted_intensity"][
+                    constant_interval
+                ][overlapped] / numpy.sqrt(
+                    constant.data["weighted_variance"][constant_interval][overlapped]
+                )
+                rho = numpy.nanmean(
+                    (mutable_overlapped - numpy.nanmean(mutable_overlapped))
+                    * (constant_overlapped - numpy.nanmean(constant_overlapped))
+                )
+                correlated_variance = (
+                    2
+                    * rho
+                    * numpy.sqrt(
+                        mutable.data["weighted_variance"][mutable_interval]
+                        * constant.data["weighted_variance"][constant_interval]
+                    )
+                )
 
         mutable.data["weight"][mutable_interval] += constant.data["weight"][
             constant_interval

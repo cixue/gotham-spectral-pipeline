@@ -108,7 +108,8 @@ def main(args: argparse.Namespace):
     num_integration_dropped: dict[str, int] = collections.defaultdict(int)
     spectrum_aggregator: dict[str, SpectrumAggregator] = collections.defaultdict(
         lambda: SpectrumAggregator(
-            SpectrumAggregator.LinearTransformer(args.channel_width)
+            SpectrumAggregator.LinearTransformer(args.channel_width),
+            options=dict(include_correlation=False),
         )
     )
     exposure_aggregator: dict[str, ExposureAggregator] = collections.defaultdict(
@@ -262,8 +263,13 @@ def main(args: argparse.Namespace):
             f"Some integrations dropped due to the following reasons:\n{pprint.pformat(dict(num_integration_dropped))}"
         )
 
-    final_spectrum_aggregator: SpectrumAggregator | None = None
-    final_exposure_aggregator: ExposureAggregator | None = None
+    final_spectrum_aggregator = SpectrumAggregator(
+        SpectrumAggregator.LinearTransformer(args.channel_width),
+        options=dict(include_correlation=True),
+    )
+    final_exposure_aggregator = ExposureAggregator(
+        ExposureAggregator.LinearTransformer(args.channel_width)
+    )
     for group in sorted(grouped_paired_rows.keys()):
         if Tsys_stats[group]["total"] == 0:
             Tsys_success_rate = 0.0
@@ -273,15 +279,9 @@ def main(args: argparse.Namespace):
             )
         if Tsys_success_rate >= args.Tsys_min_success_rate:
             if group in spectrum_aggregator:
-                if final_spectrum_aggregator is None:
-                    final_spectrum_aggregator = spectrum_aggregator[group]
-                else:
-                    final_spectrum_aggregator.merge(spectrum_aggregator[group])
+                final_spectrum_aggregator.merge(spectrum_aggregator[group])
             if group in exposure_aggregator:
-                if final_exposure_aggregator is None:
-                    final_exposure_aggregator = exposure_aggregator[group]
-                else:
-                    final_exposure_aggregator.merge(exposure_aggregator[group])
+                final_exposure_aggregator.merge(exposure_aggregator[group])
         else:
             loguru.logger.info(
                 f"Dropped integrations in {group = } since success rate = {Tsys_success_rate} < required minimum success rate = {args.Tsys_min_success_rate}"
