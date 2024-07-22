@@ -109,7 +109,7 @@ def main(args: argparse.Namespace):
     spectrum_aggregator: dict[str, SpectrumAggregator] = collections.defaultdict(
         lambda: SpectrumAggregator(
             SpectrumAggregator.LinearTransformer(args.channel_width),
-            options=dict(include_correlation=False),
+            options=dict(include_correlation=False, include_valid_data_only=True),
         )
     )
     exposure_aggregator: dict[str, ExposureAggregator] = collections.defaultdict(
@@ -265,7 +265,7 @@ def main(args: argparse.Namespace):
 
     final_spectrum_aggregator = SpectrumAggregator(
         SpectrumAggregator.LinearTransformer(args.channel_width),
-        options=dict(include_correlation=True),
+        options=dict(include_correlation=True, include_valid_data_only=True),
     )
     final_exposure_aggregator = ExposureAggregator(
         ExposureAggregator.LinearTransformer(args.channel_width)

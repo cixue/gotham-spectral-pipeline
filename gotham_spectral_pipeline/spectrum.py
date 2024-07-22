@@ -1284,7 +1284,9 @@ class Aggregator(typing.Generic[_SpectrumLike]):
         self._clean_slices(new_spectrum_slices=clean_slices, owned=owned)
         return self
 
-    def merge_all(self, spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]") -> Self:
+    def merge_all(
+        self, spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]"
+    ) -> Self:
         for spectrum in spectra:
             self.merge(spectrum)
         return self
@@ -1337,10 +1339,11 @@ class SpectrumAggregator(Aggregator[Spectrum]):
             numpy.square(weight) * variance
         )
         spectrum_slice.data["flag"][interval] = spectrum.flag[nearest]
-        flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
-        spectrum_slice.data["weight"][interval][flagged] = 0.0
-        spectrum_slice.data["weighted_intensity"][interval][flagged] = 0.0
-        spectrum_slice.data["weighted_variance"][interval][flagged] = 0.0
+        if self.options.get("include_valid_data_only", False):
+            flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
+            spectrum_slice.data["weight"][interval][flagged] = 0.0
+            spectrum_slice.data["weighted_intensity"][interval][flagged] = 0.0
+            spectrum_slice.data["weighted_variance"][interval][flagged] = 0.0
 
     def _add_spectrum_slices(
         self,
