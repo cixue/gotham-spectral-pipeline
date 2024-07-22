@@ -791,7 +791,7 @@ class Spectrum(SpectrumLike):
             res[ndiff + i : ndiff + size + i][is_signal] = True
         return res
 
-    def flag_valid_data(self):
+    def flag_valid_data(self) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -803,6 +803,7 @@ class Spectrum(SpectrumLike):
             | Spectrum.FlagReason.TIME_DOMAIN_RFI
         )
         self.flag[is_valid] |= Spectrum.FlagReason.VALID_DATA.value
+        return self
 
     def flag_signal(
         self,
@@ -811,7 +812,7 @@ class Spectrum(SpectrumLike):
         | dict[typing.Literal["baseline", "chisq"], int] = dict(baseline=255, chisq=31),
         alpha: float = 0.01,
         chunk_size: int = 1024,
-    ):
+    ) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -820,8 +821,9 @@ class Spectrum(SpectrumLike):
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
         if is_signal is None:
-            return
+            return self
         self.flag[is_signal] |= Spectrum.FlagReason.SIGNAL.value
+        return self
 
     def flag_time_domain_rfi(
         self,
@@ -830,7 +832,7 @@ class Spectrum(SpectrumLike):
         nadjacent: int = 63,
         alpha: float = 1e-6,
         chunk_size: int = 1024,
-    ):
+    ) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -842,12 +844,13 @@ class Spectrum(SpectrumLike):
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
         if is_rfi is None:
-            return
+            return self
         self.flag[is_rfi] |= Spectrum.FlagReason.TIME_DOMAIN_RFI.value
+        return self
 
     def flag_frequency_domain_rfi(
         self, *, nadjacent: int = 3, alpha: float = 1e-6, chunk_size: int = 1024
-    ):
+    ) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -856,12 +859,13 @@ class Spectrum(SpectrumLike):
             nadjacent=nadjacent, alpha=alpha, chunk_size=chunk_size
         )
         if is_rfi is None:
-            return
+            return self
         self.flag[is_rfi] |= Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI.value
+        return self
 
     def flag_head_tail(
         self, *, fraction: float | None = None, nchannel: int | None = None
-    ):
+    ) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -871,14 +875,15 @@ class Spectrum(SpectrumLike):
                 loguru.logger.error(
                     "Either but not both fraction or nchannel should be set."
                 )
-                return
+                return self
             nchannel = int(self.intensity.size * fraction)
 
         if nchannel > 0:
             self.flag[:nchannel] |= Spectrum.FlagReason.CHUNK_EDGES.value
             self.flag[-nchannel:] |= Spectrum.FlagReason.CHUNK_EDGES.value
+        return self
 
-    def flag_nan(self):
+    def flag_nan(self) -> Self:
         if self.flag is None:
             self._add_flag_array()
         assert self.flag is not None
@@ -889,6 +894,7 @@ class Spectrum(SpectrumLike):
         if self.noise is not None:
             is_nan |= numpy.isnan(self.noise)
         self.flag[is_nan] |= Spectrum.FlagReason.NAN.value
+        return self
 
     def fit_baseline(
         self,
