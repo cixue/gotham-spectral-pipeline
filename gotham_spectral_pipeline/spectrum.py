@@ -1256,12 +1256,12 @@ class Aggregator(typing.Generic[_SpectrumLike]):
                 )
                 self.spectrum_slices.discard(slc)
 
-    def merge(self, spectrum: "_SpectrumLike | Aggregator[_SpectrumLike]"):
+    def merge(self, spectrum: "_SpectrumLike | Aggregator[_SpectrumLike]") -> Self:
         if isinstance(spectrum, self.spectrum_class):
             assert isinstance(spectrum, SpectrumLike)
             spectrum_slice = self._make_spectrum_slice(spectrum)  # type: ignore
             if spectrum_slice is None:
-                return
+                return self
             clean_slices = [spectrum_slice]
             owned = True
         elif isinstance(spectrum, type(self)):
@@ -1269,13 +1269,19 @@ class Aggregator(typing.Generic[_SpectrumLike]):
             owned = False
         else:
             loguru.logger.error(f"{type(self)}: Unsupported type {type(spectrum)}")
-            return
+            return self
 
         if not clean_slices:
-            return
+            return self
 
         self.spectrum_slices.update(clean_slices)
         self._clean_slices(new_spectrum_slices=clean_slices, owned=owned)
+        return self
+
+    def merge_all(self, spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]") -> Self:
+        for spectrum in spectra:
+            self.merge(spectrum)
+        return self
 
     def get_spectrum(self) -> _SpectrumLike:
         raise NotImplementedError
