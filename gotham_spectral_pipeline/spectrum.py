@@ -653,7 +653,7 @@ class Spectrum(SpectrumLike):
         self, flags: "Spectrum.FlagReason | None" = None
     ) -> numpy.typing.NDArray[numpy.bool_]:
         if self.flag is None:
-            loguru.logger.warning("This spectrum have no flags.")
+            loguru.logger.warning("This spectrum does not have flags.")
             return numpy.full_like(self.intensity, False)
         if flags is None:
             return self.flag != 0
@@ -673,7 +673,7 @@ class Spectrum(SpectrumLike):
         mask: numpy.typing.NDArray[numpy.bool_] | None = None,
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
         if self.noise is None:
-            loguru.logger.warning("This spectrum has no noise.")
+            loguru.logger.warning("This spectrum does not have noise.")
             return None
 
         if isinstance(nadjacent, dict):
@@ -1011,7 +1011,7 @@ class Spectrum(SpectrumLike):
 
     def split(self, min_length: int = 2) -> "list[Spectrum]":
         if self.flag is None:
-            loguru.logger.warning("This spectrum have no flags.")
+            loguru.logger.warning("This spectrum does not have flags.")
             return [self]
 
         spectrum_chunks: list[Spectrum] = []
