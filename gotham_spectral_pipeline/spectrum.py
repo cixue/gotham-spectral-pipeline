@@ -1040,6 +1040,25 @@ class Spectrum(SpectrumLike):
             )
         return spectrum_chunks
 
+    def copy_flags(self, flags: "Spectrum.FlagReason", spectrum: "Spectrum") -> Self:
+        if spectrum.flag is None:
+            loguru.logger.warning("This spectrum does not have flags to be copied.")
+            return self
+        if self.frequency is None or spectrum.frequency is None:
+            loguru.logger.warning("Either or both of the spectra does not have frequency.")
+            return self
+
+        if self.flag is None:
+            self._add_flag_array()
+        assert self.flag is not None
+
+        nearest, out_of_bound = searchsorted_nearest(spectrum.frequency, self.frequency)
+        copied_flag = spectrum.flag[nearest] & flags.value
+        copied_flag[out_of_bound] = Spectrum.FlagReason.NOT_FLAGGED.value
+        self.flag &= (~flags).value
+        self.flag |= copied_flag
+        return self
+
 
 class Exposure(SpectrumLike):
     exposure: numpy.typing.NDArray[numpy.floating]
