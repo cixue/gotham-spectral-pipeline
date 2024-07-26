@@ -14,6 +14,7 @@ from .. import Spectrum, SpectrumAggregator
 from .. import Exposure, ExposureAggregator
 from .. import PositionSwitchedCalibration, SDFits, ZenithOpacity
 from .. import GbtTsysLookupTable, GbtTsysHybridSelector, TsysThresholdSelector
+from .. import SigRefPairedRows
 from ..logging import capture_builtin_warnings, LogLimiter
 
 
@@ -124,7 +125,7 @@ def main(args: argparse.Namespace):
         lambda: dict(succeed=0, total=0)
     )
 
-    def grouped_paired_rows_iter():
+    def grouped_paired_rows_iter(paired_rows: list[SigRefPairedRows]):
         grouped_paired_rows = collections.defaultdict(list)
         for paired_row in paired_rows:
             group = paired_row.metadata["group"]["sampler"]
@@ -135,129 +136,133 @@ def main(args: argparse.Namespace):
             dynamic_ncols=True,
             smoothing=0.0,
         )
-        for group in grouped_paired_rows:
-            for paired_row in grouped_paired_rows[group]:
-                yield group, paired_row
+        def paired_rows_iter(paired_rows: list[SigRefPairedRows]):
+            for paired_row in paired_rows:
+                yield paired_row
                 progress_bar.update(1)
 
-    for group, paired_row in grouped_paired_rows_iter():
-        debug_indices = {
-            f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"].iloc[0])
-            for sigref in paired_row
-            for calonoff in paired_row[sigref]
-        }
-        try:
-            sigrefpair = paired_row.get_paired_hdu(sdfits)
-            exposure = PositionSwitchedCalibration.get_exposure(sigrefpair["sig"])
-            if exposure is None:
-                num_integration_dropped["No exposure returned"] += 1
-                continue
-            total_exposure_aggregator.merge(exposure)
+        for group in grouped_paired_rows:
+            yield group, paired_rows_iter(grouped_paired_rows[group])
 
-            if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
-                num_integration_dropped["Failed prechecks"] += 1
-                continue
+    for group, paired_rows_iter in grouped_paired_rows_iter(paired_rows):
+        for paired_row in paired_rows_iter:
+            debug_indices = {
+                f"{sigref},{calonoff}": int(paired_row[sigref][calonoff]["INDEX"].iloc[0])
+                for sigref in paired_row
+                for calonoff in paired_row[sigref]
+            }
+            try:
+                sigrefpair = paired_row.get_paired_hdu(sdfits)
+                exposure = PositionSwitchedCalibration.get_exposure(sigrefpair["sig"])
+                if exposure is None:
+                    num_integration_dropped["No exposure returned"] += 1
+                    continue
+                total_exposure_aggregator.merge(exposure)
 
-            (
-                spectrum,
-                spectrum_metadata,
-            ) = PositionSwitchedCalibration.get_calibrated_spectrum(
-                sigrefpair, freq_kwargs=dict(unit="Hz"), return_metadata=True
-            )
-            if spectrum is None:
-                num_integration_dropped["No calibrated spectrum returned"] += 1
-                continue
-
-            Tsys_min_threshold = args.Tsys_min_threshold
-            Tsys_max_threshold = args.Tsys_max_threshold
-            if args.Tsys_dynamic_threshold:
-                assert tsys_threshold_selector is not None
-                central_frequency = sigrefpair["sig"]["caloff"][0].header["OBSFREQ"]
-                dynamic_threshold = tsys_threshold_selector.get_threshold(
-                    central_frequency
-                )
-                Tsys_min_threshold *= dynamic_threshold
-                Tsys_max_threshold *= dynamic_threshold
-
-            Tsys_stats[group]["total"] += 1
-            if not spectrum_metadata["Tsys"] > Tsys_min_threshold:
-                num_integration_dropped["Tsys exceeds min threshold"] += 1
-                continue
-            if not spectrum_metadata["Tsys"] < Tsys_max_threshold:
-                num_integration_dropped["Tsys exceeds max threshold"] += 1
-                continue
-            Tsys_stats[group]["succeed"] += 1
-
-            assert spectrum.frequency is not None
-
-            spectrum.flag_time_domain_rfi(spectrum_metadata)
-            spectrum.flag_frequency_domain_rfi()
-            spectrum.flag_head_tail(nchannel=args.flag_head_tail_channel_number)
-
-            assert spectrum.flag is not None
-            if args.max_rfi_channel > 0:
-                rfi_in_body_count = (
-                    ~spectrum.flagged(Spectrum.FlagReason.CHUNK_EDGES)
-                    & spectrum.flagged(
-                        Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
-                        | Spectrum.FlagReason.TIME_DOMAIN_RFI
-                    )
-                ).sum()
-                if rfi_in_body_count > args.max_rfi_channel:
-                    loguru.logger.error(
-                        f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
-                    )
-                    num_integration_dropped["Too many RFI channels"] += 1
+                if PositionSwitchedCalibration.should_be_discarded(sigrefpair):
+                    num_integration_dropped["Failed prechecks"] += 1
                     continue
 
-            spectrum.flag_nan()
-            spectrum.flag_signal()
-            baseline_result = spectrum.fit_baseline(
-                method="hybrid",
-                polynomial_options=dict(max_degree=20),
-                lomb_scargle_options=dict(
-                    min_num_terms=0, max_num_terms=40, max_cycle=32
-                ),
-                residual_threshold=0.1,
-            )
-            if baseline_result is None:
-                num_integration_dropped["Failed baseline fitting"] += 1
-                continue
-
-            baseline, _ = baseline_result
-            baseline_subtracted_spectrum = Spectrum(
-                intensity=spectrum.intensity - baseline(spectrum.frequency),
-                frequency=spectrum.frequency,
-                noise=spectrum.noise,
-                flag=spectrum.flag,
-            )
-
-            if zenith_opacity is not None:
-                correction_factor = (
-                    PositionSwitchedCalibration.get_temperature_correction_factor(
-                        sigrefpair["sig"]["caloff"], zenith_opacity
-                    )
+                (
+                    spectrum,
+                    spectrum_metadata,
+                ) = PositionSwitchedCalibration.get_calibrated_spectrum(
+                    sigrefpair, freq_kwargs=dict(unit="Hz"), return_metadata=True
                 )
-                if correction_factor is None:
-                    raise Halt("Opacity temperature correction enabled but failed.")
-                baseline_subtracted_spectrum *= correction_factor
+                if spectrum is None:
+                    num_integration_dropped["No calibrated spectrum returned"] += 1
+                    continue
 
-            baseline_subtracted_spectrum.flag_valid_data()
-            exposure.exposure[
-                ~baseline_subtracted_spectrum.flagged(Spectrum.FlagReason.VALID_DATA)
-            ] = 0.0
+                Tsys_min_threshold = args.Tsys_min_threshold
+                Tsys_max_threshold = args.Tsys_max_threshold
+                if args.Tsys_dynamic_threshold:
+                    assert tsys_threshold_selector is not None
+                    central_frequency = sigrefpair["sig"]["caloff"][0].header["OBSFREQ"]
+                    dynamic_threshold = tsys_threshold_selector.get_threshold(
+                        central_frequency
+                    )
+                    Tsys_min_threshold *= dynamic_threshold
+                    Tsys_max_threshold *= dynamic_threshold
 
-            spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
-            exposure_aggregator[group].merge(exposure)
-        except Halt as e:
-            loguru.logger.critical(*e.args)
-            tqdm.tqdm.write(*e.args)
-            sys.exit(1)
-        except Exception:
-            loguru.logger.critical(
-                f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"
-            )
-            num_integration_dropped["Uncaught expeption"] += 1
+                Tsys_stats[group]["total"] += 1
+                if not spectrum_metadata["Tsys"] > Tsys_min_threshold:
+                    num_integration_dropped["Tsys exceeds min threshold"] += 1
+                    continue
+                if not spectrum_metadata["Tsys"] < Tsys_max_threshold:
+                    num_integration_dropped["Tsys exceeds max threshold"] += 1
+                    continue
+                Tsys_stats[group]["succeed"] += 1
+
+                assert spectrum.frequency is not None
+
+                spectrum.flag_time_domain_rfi(spectrum_metadata)
+                spectrum.flag_frequency_domain_rfi()
+                spectrum.flag_head_tail(nchannel=args.flag_head_tail_channel_number)
+
+                assert spectrum.flag is not None
+                if args.max_rfi_channel > 0:
+                    rfi_in_body_count = (
+                        ~spectrum.flagged(Spectrum.FlagReason.CHUNK_EDGES)
+                        & spectrum.flagged(
+                            Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                            | Spectrum.FlagReason.TIME_DOMAIN_RFI
+                        )
+                    ).sum()
+                    if rfi_in_body_count > args.max_rfi_channel:
+                        loguru.logger.error(
+                            f"Found {rfi_in_body_count} RFI channels while working on {sdfits.path = }, {debug_indices = }. This integration seems to be broken."
+                        )
+                        num_integration_dropped["Too many RFI channels"] += 1
+                        continue
+
+                spectrum.flag_nan()
+                spectrum.flag_signal()
+                baseline_result = spectrum.fit_baseline(
+                    method="hybrid",
+                    polynomial_options=dict(max_degree=20),
+                    lomb_scargle_options=dict(
+                        min_num_terms=0, max_num_terms=40, max_cycle=32
+                    ),
+                    residual_threshold=0.1,
+                )
+                if baseline_result is None:
+                    num_integration_dropped["Failed baseline fitting"] += 1
+                    continue
+
+                baseline, _ = baseline_result
+                baseline_subtracted_spectrum = Spectrum(
+                    intensity=spectrum.intensity - baseline(spectrum.frequency),
+                    frequency=spectrum.frequency,
+                    noise=spectrum.noise,
+                    flag=spectrum.flag,
+                )
+
+                if zenith_opacity is not None:
+                    correction_factor = (
+                        PositionSwitchedCalibration.get_temperature_correction_factor(
+                            sigrefpair["sig"]["caloff"], zenith_opacity
+                        )
+                    )
+                    if correction_factor is None:
+                        raise Halt("Opacity temperature correction enabled but failed.")
+                    baseline_subtracted_spectrum *= correction_factor
+
+                baseline_subtracted_spectrum.flag_valid_data()
+                exposure.exposure[
+                    ~baseline_subtracted_spectrum.flagged(Spectrum.FlagReason.VALID_DATA)
+                ] = 0.0
+
+                spectrum_aggregator[group].merge(baseline_subtracted_spectrum)
+                exposure_aggregator[group].merge(exposure)
+            except Halt as e:
+                loguru.logger.critical(*e.args)
+                tqdm.tqdm.write(*e.args)
+                sys.exit(1)
+            except Exception:
+                loguru.logger.critical(
+                    f"Uncaught exception while working on {sdfits.path = }, {debug_indices = }\n{traceback.format_exc()}"
+                )
+                num_integration_dropped["Uncaught expeption"] += 1
     if num_integration_dropped:
         loguru.logger.info(
             f"Some integrations dropped due to the following reasons:\n{pprint.pformat(dict(num_integration_dropped))}"
