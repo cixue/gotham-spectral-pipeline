@@ -670,6 +670,7 @@ class Spectrum(SpectrumLike):
         nadjacent: int | dict[typing.Literal["baseline", "chisq"], int],
         alpha: float,
         chunk_size: int = 1024,
+        mask: numpy.typing.NDArray[numpy.bool_] | None = None,
     ) -> numpy.typing.NDArray[numpy.bool_] | None:
         if self.noise is None:
             loguru.logger.warning("This spectrum has no noise.")
@@ -691,6 +692,13 @@ class Spectrum(SpectrumLike):
             frequency = numpy.arange(self.intensity.size, dtype=numpy.float64)
         else:
             frequency = self.frequency
+        intensity = self.intensity
+        noise = self.noise
+
+        if mask is not None:
+            frequency = frequency[mask]
+            intensity = intensity[mask]
+            noise = noise[mask]
 
         # Here, we want to calculate for each point the minimum chi-square that
         # (2n + 1) adjacent points centered on the given point lies on a
@@ -730,8 +738,8 @@ class Spectrum(SpectrumLike):
             ]
 
             x = frequency[lb : ub + width_baseline - 1]
-            y = self.intensity[lb : ub + width_baseline - 1]
-            s = self.noise[lb : ub + width_baseline - 1]
+            y = intensity[lb : ub + width_baseline - 1]
+            s = noise[lb : ub + width_baseline - 1]
             x = x - x.mean()
             y = y - y.mean()
             one_s2 = 1 / numpy.square(s)
@@ -775,11 +783,15 @@ class Spectrum(SpectrumLike):
 
         is_signal = numpy.where(chisq > scipy.special.chdtri(width_chisq, alpha))[0]
 
-        res = numpy.zeros_like(self.intensity, dtype=bool)
+        res = numpy.zeros_like(intensity, dtype=bool)
         for i in range(width_chisq):
             ndiff = nbaseline - nchisq
             res[ndiff + i : ndiff + size + i][is_signal] = True
-        return res
+        if mask is None:
+            return res
+        res_unmasked = numpy.zeros_like(self.intensity, dtype=bool)
+        res_unmasked[mask] = res
+        return res_unmasked
 
     def flag_valid_data(self) -> Self:
         if self.flag is None:
