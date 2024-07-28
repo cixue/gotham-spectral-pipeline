@@ -1045,7 +1045,9 @@ class Spectrum(SpectrumLike):
             loguru.logger.warning("This spectrum does not have flags to be copied.")
             return self
         if self.frequency is None or spectrum.frequency is None:
-            loguru.logger.warning("Either or both of the spectra does not have frequency.")
+            loguru.logger.warning(
+                "Either or both of the spectra does not have frequency."
+            )
             return self
 
         if self.flag is None:
@@ -1058,6 +1060,9 @@ class Spectrum(SpectrumLike):
         self.flag &= (~flags).value
         self.flag |= copied_flag
         return self
+
+    def from_callable(self, callable: typing.Callable) -> "Spectrum":
+        return Spectrum(intensity=callable(self.frequency), frequency=self.frequency)
 
 
 class Exposure(SpectrumLike):
@@ -1200,7 +1205,9 @@ class Aggregator(typing.Generic[_SpectrumLike]):
     ):
         raise NotImplementedError
 
-    def _make_spectrum_slice(self, spectrum: _SpectrumLike) -> SpectrumSlice | None:
+    def _make_spectrum_slice(
+        self, spectrum: _SpectrumLike, init_only: bool = False
+    ) -> SpectrumSlice | None:
         aligned_field = spectrum._fields.get(self.aligned_by)
         if aligned_field is None:
             loguru.logger.error(
@@ -1214,6 +1221,9 @@ class Aggregator(typing.Generic[_SpectrumLike]):
             return None
         spectrum_slice = self.SpectrumSlice.new_empty_slice(start, stop)
         self._init_spectrum_slice(spectrum_slice)
+
+        if init_only:
+            return spectrum_slice
 
         interval = slice(
             start - spectrum_slice.buffer_start, stop - spectrum_slice.buffer_start
@@ -1292,10 +1302,14 @@ class Aggregator(typing.Generic[_SpectrumLike]):
                 )
                 self.spectrum_slices.discard(slc)
 
-    def merge(self, spectrum: "_SpectrumLike | Aggregator[_SpectrumLike]") -> Self:
+    def merge(
+        self,
+        spectrum: "_SpectrumLike | Aggregator[_SpectrumLike]",
+        init_only: bool = False,
+    ) -> Self:
         if isinstance(spectrum, self.spectrum_class):
             assert isinstance(spectrum, SpectrumLike)
-            spectrum_slice = self._make_spectrum_slice(spectrum)  # type: ignore
+            spectrum_slice = self._make_spectrum_slice(spectrum, init_only=init_only)  # type: ignore
             if spectrum_slice is None:
                 return self
             clean_slices = [spectrum_slice]
@@ -1369,11 +1383,10 @@ class SpectrumAggregator(Aggregator[Spectrum]):
             numpy.square(weight) * variance
         )
         spectrum_slice.data["flag"][interval] = spectrum.flag[nearest]
-        if self.options.get("include_valid_data_only", False):
-            flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
-            spectrum_slice.data["weight"][interval][flagged] = 0.0
-            spectrum_slice.data["weighted_intensity"][interval][flagged] = 0.0
-            spectrum_slice.data["weighted_variance"][interval][flagged] = 0.0
+        flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
+        spectrum_slice.data["weight"][interval][flagged] = 0.0
+        spectrum_slice.data["weighted_intensity"][interval][flagged] = 0.0
+        spectrum_slice.data["weighted_variance"][interval][flagged] = 0.0
 
     def _add_spectrum_slices(
         self,

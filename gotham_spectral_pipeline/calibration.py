@@ -562,6 +562,9 @@ class PositionSwitchedCalibration(Calibration):
         )
         metadata["Tcal"] = Tcal
         metadata["Tsys"] = Tsys
+        metadata["ObsFreq"] = ref_calonoffpair.get_property(
+            lambda hdulist: hdulist[0].header["OBSFREQ"], property_name="ObsFreq"
+        )
 
         ref_total_power, ref_metadata = cls.get_total_power_spectrum(
             ref_calonoffpair,
