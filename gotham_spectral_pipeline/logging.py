@@ -103,7 +103,7 @@ class LogLimiter:
         self._do_not_filter = True
         for (level, message), stats in self._stats.items():
             loguru.logger.info(
-                f"Stats for ({level = }, {message = !r}) {stats['silenced']}.\n"
+                f"Stats for ({level = }, {message = !r}).\n"
                 f"Silenced {stats['silenced']} times. Emitted {stats['emitted']} times.\n"
                 f"Total {stats['silenced'] + stats['emitted']} times."
             )
