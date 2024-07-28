@@ -813,6 +813,7 @@ class Spectrum(SpectrumLike):
         nadjacent: int | dict[typing.Literal["baseline", "chisq"], int] = 31,
         alpha: float = 1e-6,
         chunk_size: int = 1024,
+        ignore_flags: "Spectrum.FlagReason | None" = None,
     ) -> Self:
         if self.flag is None:
             self._add_flag_array()
@@ -822,10 +823,7 @@ class Spectrum(SpectrumLike):
             nadjacent=nadjacent,
             alpha=alpha,
             chunk_size=chunk_size,
-            mask=~self.flagged(
-                Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
-                | Spectrum.FlagReason.TIME_DOMAIN_RFI
-            ),
+            mask=None if ignore_flags is None else ~self.flagged(ignore_flags),
         )
         if is_signal is None:
             return self
@@ -836,7 +834,8 @@ class Spectrum(SpectrumLike):
         self,
         spectrum_metadata: dict,
         *,
-        nadjacent: int | dict[typing.Literal["baseline", "chisq"], int] = 63,
+        nadjacent: int
+        | dict[typing.Literal["baseline", "chisq"], int] = dict(baseline=255, chisq=31),
         alpha: float = 1e-6,
         chunk_size: int = 1024,
     ) -> Self:
