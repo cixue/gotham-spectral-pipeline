@@ -317,7 +317,7 @@ class Pipeline:
                     (
                         filtered_integration.spectrum,
                         filtered_integration.spectrum.fit_baseline(
-                            method="polynomial", polynomial_options=dict(degree=40)
+                            method="polynomial", polynomial_options=dict(degree=20)
                         ),
                     )
                     for filtered_integration in self._pre_baseline_output.filtered_integrations
@@ -415,6 +415,22 @@ class Pipeline:
             )
             .get_spectrum()
         )
+
+        import numpy
+
+        if numpy.any(numpy.isnan(self._output.total_exposure.frequency)):
+            print(f"{numpy.isnan(self._output.total_exposure.frequency).sum() = }")
+        if numpy.any(numpy.isnan(self._output.total_exposure.exposure)):
+            print(f"{numpy.isnan(self._output.total_exposure.exposure).sum() = }")
+        if numpy.any(numpy.isnan(self._output.exposure.frequency)):
+            print(f"{numpy.isnan(self._output.exposure.frequency).sum() = }")
+        if numpy.any(numpy.isnan(self._output.exposure.exposure)):
+            print(f"{numpy.isnan(self._output.exposure.exposure).sum() = }")
+        if numpy.any(numpy.isnan(self._output.spectrum.frequency)):
+            print(f"{numpy.isnan(self._output.spectrum.frequency).sum() = }")
+        if numpy.any(numpy.isnan(self._output.spectrum.intensity)):
+            print(f"{numpy.isnan(self._output.spectrum.intensity).sum() = }")
+
         return True
 
     def calibrate(self) -> Self:
