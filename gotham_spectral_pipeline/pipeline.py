@@ -328,13 +328,15 @@ class Pipeline:
             # Flag strong signals where baseline fitting is affected a lot
             .flag_signal(
                 nadjacent=31,
-                ignore_flags=Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                ignore_flags=Spectrum.FlagReason.CHUNK_EDGES
+                | Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
                 | Spectrum.FlagReason.TIME_DOMAIN_RFI,
             )
             # Flag weak signals that require more accurate baseline fitting
             .flag_signal(
                 nadjacent=dict(baseline=255, chisq=31),
-                ignore_flags=Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                ignore_flags=Spectrum.FlagReason.CHUNK_EDGES
+                | Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
                 | Spectrum.FlagReason.TIME_DOMAIN_RFI
                 | Spectrum.FlagReason.SIGNAL,
             )
