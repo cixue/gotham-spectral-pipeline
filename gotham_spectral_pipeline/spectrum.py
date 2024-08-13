@@ -1328,10 +1328,12 @@ class Aggregator(typing.Generic[_SpectrumLike]):
         return self
 
     def merge_all(
-        self, spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]"
+        self,
+        spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]",
+        init_only: bool = False,
     ) -> Self:
         for spectrum in spectra:
-            self.merge(spectrum)
+            self.merge(spectrum, init_only=init_only)
         return self
 
     def get_spectrum(self) -> _SpectrumLike:

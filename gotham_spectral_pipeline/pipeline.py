@@ -400,7 +400,7 @@ class Pipeline:
             ExposureAggregator(
                 ExposureAggregator.LinearTransformer(self._options.channel_width)
             )
-            .merge(self._output.total_exposure, init_only=True)
+            .merge_all(self._output.total_exposure.split(), init_only=True)
             .merge_all(
                 filtered_integration.exposure
                 for filtered_integration in self._baseline_output.filtered_integrations

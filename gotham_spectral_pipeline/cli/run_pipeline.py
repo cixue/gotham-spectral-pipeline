@@ -159,7 +159,7 @@ def main(args: argparse.Namespace):
     )
     final_exposure = (
         ExposureAggregator(ExposureAggregator.LinearTransformer(args.channel_width))
-        .merge(final_total_exposure, init_only=True)
+        .merge_all(final_total_exposure.split(), init_only=True)
         .merge_all(output.exposure for output in outputs.values() if output.success)
         .get_spectrum()
     )
