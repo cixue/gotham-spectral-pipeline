@@ -1,3 +1,4 @@
+from .beam_efficiency import *
 from .calibration import *
 from .sdfits import *
 from .spectrum import *

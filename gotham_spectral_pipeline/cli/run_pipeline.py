@@ -12,7 +12,7 @@ import tqdm  # type: ignore
 from .. import __version__
 from .. import Spectrum, SpectrumAggregator
 from .. import Exposure, ExposureAggregator
-from .. import PositionSwitchedCalibration, SDFits, ZenithOpacity
+from .. import BeamEfficiency, PositionSwitchedCalibration, SDFits, ZenithOpacity
 from .. import GbtTsysLookupTable, GbtTsysHybridSelector, TsysThresholdSelector
 from .. import SigRefPairedRows
 from .. import Pipeline
@@ -63,6 +63,10 @@ def configure_parser(parser: argparse.ArgumentParser):
     )
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
 
+    parser.add_argument(
+        "--beam_efficiency_mode", type=str, default="default", choices=["default"]
+    )
+
 
 class Halt(RuntimeError):
     pass
@@ -90,6 +94,9 @@ def main(args: argparse.Namespace):
     sdfits: SDFits = SDFits(args.sdfits)
     zenith_opacity: ZenithOpacity | None = (
         None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
+    )
+    beam_efficiency: BeamEfficiency = BeamEfficiency(
+        mode=args.beam_efficiency_mode
     )
 
     if args.filter is None:
@@ -123,6 +130,7 @@ def main(args: argparse.Namespace):
             Pipeline(
                 sdfits,
                 zenith_opacity,
+                beam_efficiency,
                 paired_rows,
                 Pipeline.Options.from_namespace(args),
             )
