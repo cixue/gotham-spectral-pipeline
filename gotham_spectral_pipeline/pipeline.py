@@ -304,6 +304,10 @@ class Pipeline:
             self._output.reason = "Tsys threshold success rate less than required."
             return False
 
+        if len(self._pre_baseline_output.filtered_integrations) == 0:
+            self._output.reason = "All integrations are filtered out."
+            return False
+
         return True
 
     def _run_stage_baseline(self) -> bool:
