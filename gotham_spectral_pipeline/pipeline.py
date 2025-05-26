@@ -209,7 +209,7 @@ class Pipeline:
             correction_factors.append(efficiency_correction_factor)
         if len(correction_factors) == 0:
             return None
-        return math.prod(correction_factors)
+        return math.prod(correction_factors)  # type: ignore
 
     def _get_debug_indices(self, paired_row: SigRefPairedRows):
         return {
@@ -421,22 +421,6 @@ class Pipeline:
             )
             .get_spectrum()
         )
-
-        import numpy
-
-        if numpy.any(numpy.isnan(self._output.total_exposure.frequency)):
-            print(f"{numpy.isnan(self._output.total_exposure.frequency).sum() = }")
-        if numpy.any(numpy.isnan(self._output.total_exposure.exposure)):
-            print(f"{numpy.isnan(self._output.total_exposure.exposure).sum() = }")
-        if numpy.any(numpy.isnan(self._output.exposure.frequency)):
-            print(f"{numpy.isnan(self._output.exposure.frequency).sum() = }")
-        if numpy.any(numpy.isnan(self._output.exposure.exposure)):
-            print(f"{numpy.isnan(self._output.exposure.exposure).sum() = }")
-        if numpy.any(numpy.isnan(self._output.spectrum.frequency)):
-            print(f"{numpy.isnan(self._output.spectrum.frequency).sum() = }")
-        if numpy.any(numpy.isnan(self._output.spectrum.intensity)):
-            print(f"{numpy.isnan(self._output.spectrum.intensity).sum() = }")
-
         return True
 
     def calibrate(self) -> Self:
