@@ -326,7 +326,7 @@ class PositionSwitchedCalibration(Calibration):
         rows = position_switched_rows
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
-        groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
+        groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER", "RESTFREQ"])
         paired_up_rows: list[SigRefPairedRows] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
@@ -353,7 +353,7 @@ class PositionSwitchedCalibration(Calibration):
                         ),
                         metadata=dict(
                             group=dict(
-                                source=group[0], offscan=group[1], sampler=group[2]
+                                source=group[0], offscan=group[1], sampler=group[2], restfreq=group[3]
                             )
                         ),
                     )

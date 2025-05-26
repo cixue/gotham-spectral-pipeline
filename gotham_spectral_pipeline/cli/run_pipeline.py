@@ -95,9 +95,7 @@ def main(args: argparse.Namespace):
     zenith_opacity: ZenithOpacity | None = (
         None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
     )
-    beam_efficiency: BeamEfficiency = BeamEfficiency(
-        mode=args.beam_efficiency_mode
-    )
+    beam_efficiency: BeamEfficiency = BeamEfficiency(mode=args.beam_efficiency_mode)
 
     if args.filter is None:
         filtered_rows = sdfits.rows
@@ -111,7 +109,10 @@ def main(args: argparse.Namespace):
     def grouped_paired_rows_iter(paired_rows: list[SigRefPairedRows]):
         grouped_paired_rows = collections.defaultdict(list)
         for paired_row in paired_rows:
-            group = paired_row.metadata["group"]["sampler"]
+            group = (
+                paired_row.metadata["group"]["sampler"],
+                paired_row.metadata["group"]["restfreq"],
+            )
             grouped_paired_rows[group].append(paired_row)
 
         progress_bar = tqdm.tqdm(
