@@ -53,12 +53,18 @@ function main() {
         return
     fi
 
-    for item in ${sdfits[@]}; do
-        echo ${item}
-    done | \
-    xargs --no-run-if-empty --max-args 1 --max-procs ${processes} -I{} \
-    bash -c '"$@" --sdfits "$0" > $(basename $0).log 2>&1' \
-    {} ${gsp} run_pipeline "${passed_to_gsp[@]}"
+    if [[ ${processes} > 1 ]]; then
+        for item in ${sdfits[@]}; do
+            echo ${item}
+        done | \
+        xargs --no-run-if-empty --max-args 1 --max-procs ${processes} -I{} \
+        bash -c '"$@" --sdfits "$0" > $(basename $0).log 2>&1' \
+        {} ${gsp} run_pipeline "${passed_to_gsp[@]}"
+    else
+        for session in ${sdfits[@]}; do
+            ${gsp} run_pipeline "${passed_to_gsp[@]}" --sdfits ${session}
+        done
+    fi
 }
 
 main "$@"

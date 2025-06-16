@@ -1,3 +1,4 @@
+from .beam_efficiency import BeamEfficiency
 from .sdfits import HDUList, SDFits
 from .spectrum import Exposure, Spectrum
 from .utils import datetime_parser, lru_cache
@@ -274,11 +275,10 @@ class Calibration:
         return with_metadata(sig)
 
     @classmethod
-    def get_temperature_correction_factor(
+    def get_opacity_correction_factor(
         cls,
         hdulist: HDUList,
         zenith_opacity: ZenithOpacity,
-        eta_l: float = 0.99,
     ) -> Spectrum | None:
         frequency = cls.get_observed_frequency(hdulist)
         if frequency is None:
@@ -289,9 +289,23 @@ class Calibration:
         if tau is None:
             return None
         elevation = cls.get_observed_elevation(hdulist)
-        return Spectrum(
-            intensity=numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))) / eta_l
-        )
+        return Spectrum(intensity=numpy.exp(tau / numpy.sin(numpy.deg2rad(elevation))))
+
+    @classmethod
+    def get_efficiency_correction_factor(
+        cls,
+        hdulist: HDUList,
+        beam_efficiency: BeamEfficiency,
+    ) -> Spectrum | None:
+        frequency = cls.get_observed_frequency(hdulist)
+        if frequency is None:
+            return None
+
+        timestamp = datetime_parser(cls.get_observed_datetime(hdulist)).timestamp()
+        eta_B = beam_efficiency.get_beam_efficiency(timestamp, frequency)
+        if eta_B is None:
+            return None
+        return Spectrum(intensity=1 / eta_B)
 
 
 class PositionSwitchedCalibration(Calibration):
@@ -312,7 +326,7 @@ class PositionSwitchedCalibration(Calibration):
         rows = position_switched_rows
         is_first_scan = (rows.PROCEDURE == "OffOn") == (rows.PROCSCAN == "OFF")
         rows["PAIRED_OFFSCAN"] = numpy.where(is_first_scan, rows.SCAN, rows.SCAN - 1)
-        groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER"])
+        groups = rows.groupby(["SOURCE", "PAIRED_OFFSCAN", "SAMPLER", "RESTFREQ"])
         paired_up_rows: list[SigRefPairedRows] = list()
         for group, rows_in_group in groups:
             ref_caloff = rows_in_group.query("PROCSCAN == 'OFF' and CAL == 'F'")
@@ -339,7 +353,7 @@ class PositionSwitchedCalibration(Calibration):
                         ),
                         metadata=dict(
                             group=dict(
-                                source=group[0], offscan=group[1], sampler=group[2]
+                                source=group[0], offscan=group[1], sampler=group[2], restfreq=group[3]
                             )
                         ),
                     )

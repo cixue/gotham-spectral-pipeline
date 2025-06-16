@@ -1,6 +1,7 @@
 import argparse
 import collections
 import loguru
+import math
 import sys
 import traceback
 from typing_extensions import Self
@@ -9,7 +10,7 @@ import tqdm  # type: ignore
 
 from . import SigRefPairedRows, SigRefPairedHDUList
 from . import GbtTsysLookupTable, GbtTsysHybridSelector, TsysThresholdSelector
-from . import PositionSwitchedCalibration, SDFits, ZenithOpacity
+from . import BeamEfficiency, PositionSwitchedCalibration, SDFits, ZenithOpacity
 from . import Exposure, ExposureAggregator
 from . import Spectrum, SpectrumAggregator
 
@@ -23,6 +24,7 @@ class Pipeline:
     class Input:
         sdfits: SDFits
         zenith_opacity: ZenithOpacity | None
+        beam_efficiency: BeamEfficiency | None
         paired_rows: list[SigRefPairedRows]
 
     class FilteredIntegration:
@@ -94,11 +96,13 @@ class Pipeline:
         self,
         sdfits: SDFits,
         zenith_opacity: ZenithOpacity | None,
+        beam_efficiency: BeamEfficiency | None,
         paired_rows: list[SigRefPairedRows],
         options: Options,
     ):
         self.sdfits = sdfits
         self.zenith_opacity = zenith_opacity
+        self.beam_efficiency = beam_efficiency
         self.paired_rows = paired_rows
 
         self._input = self.Input()
@@ -109,6 +113,7 @@ class Pipeline:
 
         self._input.sdfits = sdfits
         self._input.zenith_opacity = zenith_opacity
+        self._input.beam_efficiency = beam_efficiency
         self._input.paired_rows = paired_rows
         self._options = options
 
@@ -183,16 +188,28 @@ class Pipeline:
     def _get_correction_factor(
         self, sigrefpair: SigRefPairedHDUList
     ) -> Spectrum | None:
+        correction_factors = []
         if self._input.zenith_opacity is not None:
-            correction_factor = (
-                PositionSwitchedCalibration.get_temperature_correction_factor(
+            opacity_correction_factor = (
+                PositionSwitchedCalibration.get_opacity_correction_factor(
                     sigrefpair["sig"]["caloff"], self._input.zenith_opacity
                 )
             )
-            if correction_factor is None:
+            if opacity_correction_factor is None:
                 raise self.Halt("Opacity temperature correction enabled but failed.")
-            return correction_factor
-        return None
+            correction_factors.append(opacity_correction_factor)
+        if self._input.beam_efficiency is not None:
+            efficiency_correction_factor = (
+                PositionSwitchedCalibration.get_efficiency_correction_factor(
+                    sigrefpair["sig"]["caloff"], self._input.beam_efficiency
+                )
+            )
+            if efficiency_correction_factor is None:
+                raise self.Halt("Beam efficiency correction enabled but failed.")
+            correction_factors.append(efficiency_correction_factor)
+        if len(correction_factors) == 0:
+            return None
+        return math.prod(correction_factors)  # type: ignore
 
     def _get_debug_indices(self, paired_row: SigRefPairedRows):
         return {
@@ -287,6 +304,10 @@ class Pipeline:
             self._output.reason = "Tsys threshold success rate less than required."
             return False
 
+        if len(self._pre_baseline_output.filtered_integrations) == 0:
+            self._output.reason = "All integrations are filtered out."
+            return False
+
         return True
 
     def _run_stage_baseline(self) -> bool:
@@ -300,7 +321,7 @@ class Pipeline:
                     (
                         filtered_integration.spectrum,
                         filtered_integration.spectrum.fit_baseline(
-                            method="polynomial", polynomial_options=dict(degree=40)
+                            method="polynomial", polynomial_options=dict(degree=20)
                         ),
                     )
                     for filtered_integration in self._pre_baseline_output.filtered_integrations
@@ -311,13 +332,15 @@ class Pipeline:
             # Flag strong signals where baseline fitting is affected a lot
             .flag_signal(
                 nadjacent=31,
-                ignore_flags=Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                ignore_flags=Spectrum.FlagReason.CHUNK_EDGES
+                | Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
                 | Spectrum.FlagReason.TIME_DOMAIN_RFI,
             )
             # Flag weak signals that require more accurate baseline fitting
             .flag_signal(
                 nadjacent=dict(baseline=255, chisq=31),
-                ignore_flags=Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
+                ignore_flags=Spectrum.FlagReason.CHUNK_EDGES
+                | Spectrum.FlagReason.FREQUENCY_DOMAIN_RFI
                 | Spectrum.FlagReason.TIME_DOMAIN_RFI
                 | Spectrum.FlagReason.SIGNAL,
             )
@@ -381,7 +404,7 @@ class Pipeline:
             ExposureAggregator(
                 ExposureAggregator.LinearTransformer(self._options.channel_width)
             )
-            .merge(self._output.total_exposure, init_only=True)
+            .merge_all(self._output.total_exposure.split(), init_only=True)
             .merge_all(
                 filtered_integration.exposure
                 for filtered_integration in self._baseline_output.filtered_integrations

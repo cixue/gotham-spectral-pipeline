@@ -12,7 +12,7 @@ import tqdm  # type: ignore
 from .. import __version__
 from .. import Spectrum, SpectrumAggregator
 from .. import Exposure, ExposureAggregator
-from .. import PositionSwitchedCalibration, SDFits, ZenithOpacity
+from .. import BeamEfficiency, PositionSwitchedCalibration, SDFits, ZenithOpacity
 from .. import GbtTsysLookupTable, GbtTsysHybridSelector, TsysThresholdSelector
 from .. import SigRefPairedRows
 from .. import Pipeline
@@ -63,6 +63,10 @@ def configure_parser(parser: argparse.ArgumentParser):
     )
     parser.add_argument("--Tsys_min_success_rate", type=float, default=0.0)
 
+    parser.add_argument(
+        "--beam_efficiency_mode", type=str, default="default", choices=["default"]
+    )
+
 
 class Halt(RuntimeError):
     pass
@@ -91,6 +95,7 @@ def main(args: argparse.Namespace):
     zenith_opacity: ZenithOpacity | None = (
         None if args.zenith_opacity is None else ZenithOpacity(args.zenith_opacity)
     )
+    beam_efficiency: BeamEfficiency = BeamEfficiency(mode=args.beam_efficiency_mode)
 
     if args.filter is None:
         filtered_rows = sdfits.rows
@@ -104,7 +109,10 @@ def main(args: argparse.Namespace):
     def grouped_paired_rows_iter(paired_rows: list[SigRefPairedRows]):
         grouped_paired_rows = collections.defaultdict(list)
         for paired_row in paired_rows:
-            group = paired_row.metadata["group"]["sampler"]
+            group = (
+                paired_row.metadata["group"]["sampler"],
+                paired_row.metadata["group"]["restfreq"],
+            )
             grouped_paired_rows[group].append(paired_row)
 
         progress_bar = tqdm.tqdm(
@@ -123,6 +131,7 @@ def main(args: argparse.Namespace):
             Pipeline(
                 sdfits,
                 zenith_opacity,
+                beam_efficiency,
                 paired_rows,
                 Pipeline.Options.from_namespace(args),
             )
@@ -151,7 +160,7 @@ def main(args: argparse.Namespace):
     )
     final_exposure = (
         ExposureAggregator(ExposureAggregator.LinearTransformer(args.channel_width))
-        .merge(final_total_exposure, init_only=True)
+        .merge_all(final_total_exposure.split(), init_only=True)
         .merge_all(output.exposure for output in outputs.values() if output.success)
         .get_spectrum()
     )

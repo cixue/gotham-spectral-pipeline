@@ -1328,10 +1328,12 @@ class Aggregator(typing.Generic[_SpectrumLike]):
         return self
 
     def merge_all(
-        self, spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]"
+        self,
+        spectra: "typing.Iterable[_SpectrumLike | Aggregator[_SpectrumLike]]",
+        init_only: bool = False,
     ) -> Self:
         for spectrum in spectra:
-            self.merge(spectrum)
+            self.merge(spectrum, init_only=init_only)
         return self
 
     def get_spectrum(self) -> _SpectrumLike:
@@ -1376,10 +1378,11 @@ class SpectrumAggregator(Aggregator[Spectrum]):
         variance = numpy.square(noise)
         weight = 1 / variance
 
+        non_zero_weight = weight > 0.0
         spectrum_slice.data["weight"][interval] = weight
         spectrum_slice.data["weighted_intensity"][interval] = weight * intensity
-        spectrum_slice.data["weighted_variance"][interval] = (
-            numpy.square(weight) * variance
+        spectrum_slice.data["weighted_variance"][interval][non_zero_weight] = (
+            numpy.square(weight[non_zero_weight]) * variance[non_zero_weight]
         )
         spectrum_slice.data["flag"][interval] = spectrum.flag[nearest]
         flagged = (spectrum_slice.data["flag"][interval] & Spectrum.FlagReason.VALID_DATA.value) == 0  # type: ignore
@@ -1463,8 +1466,8 @@ class SpectrumAggregator(Aggregator[Spectrum]):
             sum(map(lambda slc: slc.stop - slc.start + 1, self.spectrum_slices)) - 1
         )
         frequency = numpy.full(total_length, numpy.nan)
-        intensity = numpy.full(total_length, numpy.nan)
-        noise = numpy.full(total_length, numpy.nan)
+        intensity = numpy.full(total_length, 0.0)
+        noise = numpy.full(total_length, numpy.inf)
         flag = numpy.full(total_length, Spectrum.FlagReason.NAN.value)
         filled_length = 0
         for spectrum_slice in self.spectrum_slices:
@@ -1477,13 +1480,20 @@ class SpectrumAggregator(Aggregator[Spectrum]):
             frequency[fill_interval] = self.transformer.forward(
                 numpy.arange(spectrum_slice.start, spectrum_slice.stop)
             )
-            intensity[fill_interval] = (
-                spectrum_slice.data["weighted_intensity"][current_interval]
-                / spectrum_slice.data["weight"][current_interval]
+            non_zero_weight = spectrum_slice.data["weight"][current_interval] > 0.0
+            intensity[fill_interval][non_zero_weight] = (
+                spectrum_slice.data["weighted_intensity"][current_interval][
+                    non_zero_weight
+                ]
+                / spectrum_slice.data["weight"][current_interval][non_zero_weight]
             )
-            noise[fill_interval] = (
-                numpy.sqrt(spectrum_slice.data["weighted_variance"][current_interval])
-                / spectrum_slice.data["weight"][current_interval]
+            noise[fill_interval][non_zero_weight] = (
+                numpy.sqrt(
+                    spectrum_slice.data["weighted_variance"][current_interval][
+                        non_zero_weight
+                    ]
+                )
+                / spectrum_slice.data["weight"][current_interval][non_zero_weight]
             )
             flag[fill_interval] = spectrum_slice.data["flag"][current_interval]
             filled_length += current_length + 1
